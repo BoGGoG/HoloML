@@ -32,26 +32,21 @@ def h(z: float|np.ndarray|Tensor) -> np.ndarray|Tensor:
 def SFiniteIntegrant(z, zstar, beta, mu) -> torch.Tensor:
 
     integrand = torch.sqrt(h(z) / ( ( 1 - torch.pow(z, 4) * h(zstar)**2 / (zstar**4 * torch.pow(h(z),2)) ) * f(z, beta, mu) ))
+    integrand = torch.clamp(integrand, max=1e8)  # avoid numerical issues
     integrand = torch.clamp((integrand - 1) / torch.pow(z, 2), max=1e8)  # avoid numerical issues
-
-    # denom = 1.0 - (z / zstar)**4
-
-    # denom = torch.clamp(denom, min=1e-8)  # avoid numerical issues
-    # term1 = torch.sqrt(h(z) / denom)
-    # term2 = 1.0 / torch.sqrt(f(z, beta, mu))
     return integrand
 
 def SFiniteA(zstar:float, beta:float, mu:float) -> Tensor:
     """ Integrate SFiniteIntegrant from 0 to zstar """
-    eps = 1e-8 # need to avoid singularity at z=0. Tried also with 1e-7 and not much changes. With 1e-9 get eror, but VEGAS problem I think.
-    integration_domain = [[0, zstar-eps]]
+    eps = 1e-6 # need to avoid singularity at z=0. Tried also with 1e-7 and not much changes. With 1e-9 get eror, but VEGAS problem I think.
+    integration_domain = torch.tensor([[0, zstar-eps]])
     # integrator = MonteCarlo()
     integrator = VEGAS()
     # integrator = Simpson()
     # integrator = Trapezoid()
     # integrator = Boole()
     func = partial(SFiniteIntegrant, zstar=zstar, beta=beta, mu=mu)
-    result = torch.tensor(integrator.integrate(func, integration_domain=integration_domain, N=2_000, dim=1))
+    result = torch.tensor(integrator.integrate(func, integration_domain=integration_domain, N=1200, dim=1, max_iterations=1))
     return result
 
 def SFinite(zstar:float, beta:float, mu:float) -> Tensor:
@@ -59,18 +54,18 @@ def SFinite(zstar:float, beta:float, mu:float) -> Tensor:
     out = SFiniteA_value - 1. / zstar
     return out
 
-def lIntegrand(alpha:Tensor, zstar:float) -> Tensor:
-    out = 1. / torch.sqrt(h(alpha)*f(alpha, beta, mu)) * 1./torch.sqrt(torch.pow(h(alpha), 2) * zstar**4 / h(zstar)**2 / torch.pow(alpha, 4) - 1)
+def lIntegrand(alpha:Tensor, zstar:float, beta:float, mu:float) -> Tensor:
+    out = 1. / torch.sqrt(h(alpha)*f(alpha, beta, mu) * (torch.pow(h(alpha), 2) * zstar**4 / h(zstar)**2 / torch.pow(alpha, 4) - 1))
     return torch.clamp(out, max=1e8)
 
 def lfunc(z, beta, mu) -> Tensor:
-    eps = 1e-8
-    integration_domain = [[0, z-eps]]
+    eps = 1e-6
+    integration_domain = torch.tensor([[0, z-eps]])
     integrator = VEGAS()
     # integrator = MonteCarlo()
     # integrator = Simpson()
-    func = partial(lIntegrand, zstar=z)
-    result = 2 * torch.tensor(integrator.integrate(func, integration_domain=integration_domain, N=2_000, dim=1))
+    func = partial(lIntegrand, zstar=z, beta=beta, mu=mu)
+    result = 2 * torch.tensor(integrator.integrate(func, integration_domain=integration_domain, N=1200, dim=1, max_iterations=1))
     return result
 
 def figure_2():
@@ -81,6 +76,10 @@ def figure_2():
         zstar = torch.linspace(eps, 1.0-eps, 1000)
         l = np.array([lfunc(zz, beta, mu).cpu() for zz in zstar])
         S = np.array([SFinite(zz, beta, mu).cpu() for zz in zstar])
+        # sort S and l such that l is increasing
+        idxs = np.argsort(l)
+        l = l[idxs]
+        S = S[idxs]
         ax.plot(l, S, label=f"$\\mu={mu}, \\beta={beta}$", c=colors[i])
     ax.set_xlabel(r"$\ell$")
     ax.set_ylabel(r"$S_{\text{finite}}$")
