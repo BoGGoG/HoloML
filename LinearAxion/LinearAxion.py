@@ -93,6 +93,25 @@ def lfunc(z, beta, mu, N_GL:int=12) -> Tensor:
         result = torch.tensor(result)
     return result
 
+def get_event_horizon(f_func) -> Tensor:
+    """ find the place where f_func(z) = 0, z > 0, z < 1
+    This has to be done numerically and we need to have gradients.
+
+    For this case here, we actually know that the horizon is at z=1.
+    """
+    if not (f_func.__name__ == "_f" or f_func.__name__ == "f_true" or f_func.__name__ == "f"):
+        raise ValueError("get_event_horizon only works for _f or f_true or f function")
+
+    return torch.tensor(1.0, requires_grad=False)
+    
+def get_thermal_entropy(h, zh:Tensor) -> Tensor:
+    """ s = L^2 h(z) / (4 G_N z^2) at z=zh (horizon)
+    Here we set the constant L^2 / (4 G_N) = 1.
+    Actually, here this will always return 1, because we have h(z) = 1 and zh=1
+    """
+    out = h(zh) / torch.pow(zh, 2)
+    return out
+
 def generate_data(beta:float, mu:float, Nzstar:int=1000, N_GL:int=12):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     eps = 1e-6
@@ -106,11 +125,15 @@ def generate_data(beta:float, mu:float, Nzstar:int=1000, N_GL:int=12):
         idxs = np.argsort(l)
         l = l[idxs]
         S = S[idxs]
+
+        thermal_entropy = get_thermal_entropy(h, get_event_horizon(f))
+
         # append to data
         data[(mu, beta)] = {
             "zstar": zstar.cpu().numpy(),
             "SFinite": S,
             "l": l,
+            "s_thermal": thermal_entropy.cpu().numpy(),
         }
     return data
 
@@ -162,34 +185,34 @@ if __name__ == "__main__":
     print(f"{SFinite(zstar, beta, mu)=}")
     print(f"{lfunc(0.4, beta, mu)=}")
 
-    figure_2()
+    # figure_2()
 
-    # dir = Path("data")
-    # path = dir / "data.pkl"
-    # do_data_generation = False
-    # if do_data_generation:
-    #     data = generate_data(beta, mu, Nzstar=5000, N_GL=20)
-    #     pickle.dump(data, open(path, "wb"))
-    #     print(f"Data saved to {path}")
-    #
-    # # load data
-    # print(f"Loading data from {path}")
-    # data_loaded = pickle.load(open(path, "rb"))
-    #
-    #
-    # # curve fitting S(l)
-    # mu = 1.0
-    # beta = 1.5
-    # print(data_loaded[(mu, beta)]["SFinite"])
-    # popt, pcov = power_law_fit(data_loaded[(mu, beta)])
-    # print(f"Fitted parameters for mu={mu}, beta={beta}:")
-    # print(popt)
-    #
-    # plt.plot(data_loaded[(mu, beta)]["l"], data_loaded[(mu, beta)]["SFinite"], label="Data")
-    # xrange = np.linspace(0, 3.1, 100)
-    # plt.plot(xrange, f_for_fit(xrange, *popt), label="Fit", ls="--")
-    # plt.legend()
-    # plt.xlabel(r"$\ell$")
-    # plt.ylabel(r"$S_{\text{finite}}$")
-    # plt.ylim(-6, 2)
-    # plt.show()
+    dir = Path("data")
+    path = dir / "data.pkl"
+    do_data_generation = True
+    if do_data_generation:
+        data = generate_data(beta, mu, Nzstar=5000, N_GL=20)
+        pickle.dump(data, open(path, "wb"))
+        print(f"Data saved to {path}")
+
+    # load data
+    print(f"Loading data from {path}")
+    data_loaded = pickle.load(open(path, "rb"))
+
+
+    # curve fitting S(l)
+    mu = 1.0
+    beta = 1.5
+    print(data_loaded[(mu, beta)]["SFinite"])
+    popt, pcov = power_law_fit(data_loaded[(mu, beta)])
+    print(f"Fitted parameters for mu={mu}, beta={beta}:")
+    print(popt)
+
+    plt.plot(data_loaded[(mu, beta)]["l"], data_loaded[(mu, beta)]["SFinite"], label="Data")
+    xrange = np.linspace(0, 3.1, 100)
+    plt.plot(xrange, f_for_fit(xrange, *popt), label="Fit", ls="--")
+    plt.legend()
+    plt.xlabel(r"$\ell$")
+    plt.ylabel(r"$S_{\text{finite}}$")
+    plt.ylim(-6, 2)
+    plt.show()

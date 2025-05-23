@@ -16,6 +16,8 @@ import matplotlib.pyplot as plt
 from pathlib import  Path
 import torch.nn as nn
 
+from LinearAxion import get_event_horizon, get_thermal_entropy
+
 # Use this to enable GPU support and set the floating point precision
 set_up_backend("torch", data_type="float64")
 # torch.set_default_tensor_type('torch.cuda.FloatTensor')
@@ -47,17 +49,33 @@ class LinearAxion_NN(nn.Module):
         self.a = nn.Parameter(torch.tensor(a))
 
     def forward(self, x):
+        """
+        f always has a zero at x=1
+        """
         f_out = (1 - x) * ( 1 + (self.a + 1) * x - torch.pow(x, 2) * self.network_f(x)) 
         h_out = 1 + self.a * x - torch.pow(x, 2) * self.network_h(x)
         return f_out, h_out
 
+def f_true(z: Tensor, beta: float, mu: float) -> Tensor:
+    """(3.21) in paper"""
+    return 1 - beta**2 * torch.pow(z, 2) / 2.0 - (1 - beta**2 / 2. + mu**2 / 4.) * torch.pow(z, 3) + mu**2 * torch.pow(z, 4) / 4.
+
+def h_true(z: Tensor) -> Tensor:
+    """ Just 1, but might get extended. Return 1 in same shape as z """
+    return torch.ones_like(z)
+
 def _h(z):
+    """ watch out, needs model to be defined """
     if len(z.shape) == 0:
         z = torch.unsqueeze(z, 0)
     f_out, h_out = model(z)
     return h_out
 
 def _f(z):
+    """ watch out, needs model to be defined.
+    This _f always has a zero at z=1, because this is how it is defined in model.
+    For more complicated f, this will not be the case.
+    """
     if len(z.shape) == 0:
         z = torch.unsqueeze(z, 0)
     f_out, h_out = model(z)
@@ -102,8 +120,16 @@ if __name__ == "__main__":
     path = dir / "data.pkl"
     print(f"Loading data from {path}")
     data_loaded = pickle.load(open(path, "rb"))
+    print(data_loaded[(0.5, 0.5)]["s_thermal"])
 
     model = LinearAxion_NN(input_dim=1, output_dim=1, hidden_layers=[32, 32])
+
+    print(f"{get_event_horizon(_f)=}")
+    print(f"{get_thermal_entropy(_h, get_event_horizon(_f))=}")
+
+    print(f"{get_event_horizon(f_true)=}")
+    print(f"{get_thermal_entropy(h_true, get_event_horizon(f_true))=}")
+
 
     f_out, h_out = model(torch.tensor([0.5]))
     print(f_out, h_out)
@@ -113,8 +139,8 @@ if __name__ == "__main__":
     # with torch.no_grad():
     f_out, h_out = model(zstar_list.unsqueeze(1))
 
-    print(f"f_out: {f_out}")
-    print(f"h_out: {h_out}")
+    print(f"f_out: {f_out[:3]}")
+    print(f"h_out: {h_out[:3]}")
 
     s = S_integral(zstar_list, N_GL=12)
     l = l_integral(zstar_list, N_GL=12)
