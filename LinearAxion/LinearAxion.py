@@ -189,7 +189,7 @@ if __name__ == "__main__":
 
     dir = Path("data")
     path = dir / "data.pkl"
-    do_data_generation = True
+    do_data_generation = False
     if do_data_generation:
         data = generate_data(beta, mu, Nzstar=5000, N_GL=20)
         pickle.dump(data, open(path, "wb"))

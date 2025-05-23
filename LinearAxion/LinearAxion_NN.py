@@ -64,14 +64,14 @@ def h_true(z: Tensor) -> Tensor:
     """ Just 1, but might get extended. Return 1 in same shape as z """
     return torch.ones_like(z)
 
-def _h(z):
+def _h(model, z):
     """ watch out, needs model to be defined """
     if len(z.shape) == 0:
         z = torch.unsqueeze(z, 0)
     f_out, h_out = model(z)
     return h_out
 
-def _f(z):
+def _f(model, z):
     """ watch out, needs model to be defined.
     This _f always has a zero at z=1, because this is how it is defined in model.
     For more complicated f, this will not be the case.
@@ -81,35 +81,35 @@ def _f(z):
     f_out, h_out = model(z)
     return f_out
 
-def SFiniteIntegrant(z, zstar) -> torch.Tensor:
-    integrand = torch.sqrt(_h(z) / ( ( 1 - torch.pow(z, 4) * _h(zstar)**2 / (zstar**4 * torch.pow(_h(z),2)) ) * _f(z) ))
+def SFiniteIntegrant(z, model, zstar) -> torch.Tensor:
+    integrand = torch.sqrt(_h(model, z) / ( ( 1 - torch.pow(z, 4) * _h(model, zstar)**2 / (zstar**4 * torch.pow(_h(model, z),2)) ) * _f(model, z) ))
     integrand = torch.clamp(integrand, max=1e8)  # avoid numerical issues
     integrand = torch.clamp((integrand - 1) / torch.pow(z, 2), max=1e8)  # avoid numerical issues
     return integrand
 
-def S_integral(zstar:Tensor, N_GL:int=12) -> Tensor:
+def S_integral(model, zstar:Tensor, N_GL:int=12) -> Tensor:
     eps = 1e-8 # need to avoid singularity at z=0. Tried also with
     integrator = GaussLegendre()
 
     out = []
     for zstar_i in zstar:
         integration_domain = torch.tensor([[0, zstar_i-eps]])
-        func = partial(SFiniteIntegrant, zstar=zstar_i)
+        func = partial(SFiniteIntegrant, model=model, zstar=zstar_i)
         result = integrator.integrate(func, integration_domain=integration_domain, N=N_GL, dim=1)
         out.append(result)
     return torch.stack(out)
 
-def lIntegrand(alpha:Tensor, zstar:Tensor) -> Tensor:
-    out = 1. / torch.sqrt(_h(alpha)*_f(alpha) * (torch.pow(_h(alpha), 2) * zstar**4 / _h(zstar)**2 / torch.pow(alpha, 4) - 1))
+def lIntegrand(alpha:Tensor, zstar:Tensor, model) -> Tensor:
+    out = 1. / torch.sqrt(_h(model, alpha)*_f(model, alpha) * (torch.pow(_h(model, alpha), 2) * zstar**4 / _h(model, zstar)**2 / torch.pow(alpha, 4) - 1))
     return torch.clamp(out, max=1e8)
 
-def l_integral(zstar:Tensor, N_GL:int=12) -> Tensor:
+def l_integral(model, zstar:Tensor, N_GL:int=12) -> Tensor:
     eps = 1e-8
     integrator = GaussLegendre()
     out = []
     for zstar_i in zstar:
         integration_domain = torch.tensor([[0, zstar_i-eps]])
-        func = partial(lIntegrand, zstar=zstar_i)
+        func = partial(lIntegrand, model=model, zstar=zstar_i)
         result = 2 * integrator.integrate(func, integration_domain=integration_domain, N=N_GL, dim=1)
         out.append(result)
     return torch.stack(out)
@@ -142,8 +142,8 @@ if __name__ == "__main__":
     print(f"f_out: {f_out[:3]}")
     print(f"h_out: {h_out[:3]}")
 
-    s = S_integral(zstar_list, N_GL=12)
-    l = l_integral(zstar_list, N_GL=12)
+    s = S_integral(model, zstar_list, N_GL=12)
+    l = l_integral(model, zstar_list, N_GL=12)
     print(f"S_integral: {s}")
 
     # try gradients
