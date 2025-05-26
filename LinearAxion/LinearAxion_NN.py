@@ -96,6 +96,7 @@ def S_integral(model, zstar:Tensor, N_GL:int=12) -> Tensor:
         integration_domain = torch.tensor([[0, zstar_i-eps]])
         func = partial(SFiniteIntegrant, model=model, zstar=zstar_i)
         result = integrator.integrate(func, integration_domain=integration_domain, N=N_GL, dim=1)
+        result = result - 1./zstar_i
         out.append(result)
     return torch.stack(out)
 

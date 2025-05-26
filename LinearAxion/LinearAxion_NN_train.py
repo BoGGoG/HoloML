@@ -48,9 +48,10 @@ if __name__ == "__main__":
     path = dir / "data.pkl"
     print(f"Loading data from {path}")
     data_loaded = pickle.load(open(path, "rb"))
-    mu = 1.0
-    beta = 1.5
-    N_zstar_points = 100
+    mu = 0.5
+    beta = 0.5
+    N_zstar_points = 200
+    clipping_value = 0.1 # arbitrary value of your choosing
     S_true = data_loaded[(mu, beta)]["SFinite"]
     l_true = data_loaded[(mu, beta)]["l"]
     zstar = data_loaded[(mu, beta)]["zstar"]
@@ -63,23 +64,29 @@ if __name__ == "__main__":
     # S_l_interpolated = interpolate_S_l(data_loaded[(mu, beta)])
     popt = interpolate_S_l(data_loaded[(mu, beta)])
 
-    zstar_list = torch.tensor(np.linspace(0.10, 0.99, N_zstar_points), requires_grad=False)
-    # model = LinearAxion_NN(input_dim=1, output_dim=1, hidden_layers=[32, 32])
-    model = LinearAxion_NN(input_dim=1, output_dim=1, hidden_layers=[20, 20, 20])
+    zstar_list = torch.tensor(np.linspace(0.10, 0.999, N_zstar_points), requires_grad=False)
+    model = LinearAxion_NN(input_dim=1, output_dim=1, hidden_layers=[32, 32])
+    # model = LinearAxion_NN(input_dim=1, output_dim=1, hidden_layers=[20, 30, 30])
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
-    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50, 200, 300], gamma=0.1)
+    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50, 120, 200, 300, 500, 700, 900], gamma=0.5)
 
     def h_helper(z):
         return _h(model, z)
 
-    epochs = 350
+    epochs = 30
     loss_hist = []
     s_thermal_loss_hist = []
     S_loss_hist = []
     lr_hist = []
-    for epoch in range(350):
-        S_pred = S_integral(model, zstar_list, N_GL=12)
-        l_pred = l_integral(model, zstar_list, N_GL=12)
+    for epoch in range(epochs):
+        zstar_list_noise = zstar_list + torch.randn_like(zstar_list) * 0.005 # add some noise
+        zstar_list_noise = torch.clamp(zstar_list_noise, min=0.10, max=0.9999)  # avoid numerical issues
+        if epoch == epochs:
+            N_zstar_points = 1000
+            zstar_list = torch.tensor(np.linspace(0.10, 0.999, N_zstar_points), requires_grad=False)
+            zstar_list_noise = torch.tensor(np.linspace(0.10, 0.999, N_zstar_points), requires_grad=False)
+        S_pred = S_integral(model, zstar_list_noise, N_GL=12)
+        l_pred = l_integral(model, zstar_list_noise, N_GL=12)
         s_thermal_pred = get_thermal_entropy(h_helper, zh=torch.tensor(1.0))
         losses = calc_loss(S_pred, l_pred, s_thermal_pred, s_thermal_true, f_for_fit, popt)
         loss = losses["loss"]
@@ -88,6 +95,7 @@ if __name__ == "__main__":
 
         optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), clipping_value)
         optimizer.step()
         scheduler.step()
 
@@ -95,6 +103,9 @@ if __name__ == "__main__":
         s_thermal_loss_hist.append(losses["s_thermal_loss"].item())
         S_loss_hist.append(losses["S_loss"].item())
         lr_hist.append(lr)
+        if loss.item is None or np.isnan(loss.item()):
+            print("Loss is None or NaN, stopping training.")
+            break
 
     plt.plot(l_pred.detach().cpu().numpy(), S_pred.detach().cpu().numpy(), label="NN")
     plt.plot(l_true, S_true, label="True")
