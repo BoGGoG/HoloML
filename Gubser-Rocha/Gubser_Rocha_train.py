@@ -125,7 +125,7 @@ if __name__ == "__main__":
     def h_helper(z, Q):
         return _h(model, z)
 
-    epochs = 50
+    epochs = 200
     loss_hist = []
     s_thermal_loss_hist = []
     S_loss_hist = []
@@ -193,7 +193,7 @@ if __name__ == "__main__":
         label=r"$\ell$ (NN)",
     )
     plt.scatter(zstar, l_true, label=r"$\ell$ (True)", c="red", s=1)
-    plt.xlabel(r"$z_star$")
+    plt.xlabel(r"$z_\star$")
     plt.ylabel(r"$\ell$")
     plt.title(rf"$\ell$ vs $z_\star$, beta={beta}, mu={mu}")
     plt.legend()
@@ -206,8 +206,8 @@ if __name__ == "__main__":
         label=r"$S$ (NN)",
     )
     plt.scatter(zstar, S_true, label=r"$S$ (True)", c="red", s=1)
-    plt.xlabel(r"$z_star$")
+    plt.xlabel(r"$z_\star$")
     plt.ylabel(r"$S$")
-    plt.title(rf"$S$ vs $z_star$, beta={beta}, mu={mu}")
+    plt.title(rf"$S$ vs $z_\star$, beta={beta}, mu={mu}")
     plt.legend()
     plt.show()
