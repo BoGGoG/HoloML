@@ -194,7 +194,7 @@ def get_thermal_entropy(h, zh: Tensor, Q) -> Tensor:
     return out
 
 
-if __name__ == "__main__":
+def test_functions():
     beta_val = 0.6
     mu_val = 1.2
     Q_func = get_Q_func("Q_expr.txt")
@@ -218,12 +218,14 @@ if __name__ == "__main__":
         f"{get_thermal_entropy(h_true, get_event_horizon(f_true, (beta_val, Q)), Q)=}"
     )
 
-    # # plot f
-    # z_arr = np.linspace(0.01, 0.99, 100)
-    # plt.figure(figsize=(10, 6))
-    # f_values = f_true(torch.tensor(z_arr), beta_val, Q)
-    # plt.plot(z_arr, f_values.numpy(), label=f"f(z) for Q={Q:.2f}, beta={beta_val}")
-    # plt.show()
+
+def test_S_of_l():
+    beta_val = 0.6
+    mu_val = 1.2
+    Q_func = get_Q_func("Q_expr.txt")
+    z_test = torch.linspace(0.1, 1, 6, dtype=torch.float32)
+    z_star = torch.tensor([0.645])
+    Q = Q_func(mu_val, beta_val)
 
     # Sfinite as a function of l
     colors = ["red", "green", "blue"]
@@ -252,3 +254,17 @@ if __name__ == "__main__":
         plt.xlim(0, 3)
         plt.ylim(-4.5, 2.1)
     plt.show()
+
+
+if __name__ == "__main__":
+    do_tests = False
+    if do_tests:
+        test_functions()
+        test_S_of_l()
+
+    beta_val = 0.6
+    mu_val = 1.2
+    Q_func = get_Q_func("Q_expr.txt")
+    z_test = torch.linspace(0.1, 1, 6, dtype=torch.float32)
+    z_star = torch.tensor([0.645])
+    Q = Q_func(mu_val, beta_val)
