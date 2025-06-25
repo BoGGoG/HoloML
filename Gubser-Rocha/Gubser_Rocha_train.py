@@ -125,7 +125,7 @@ if __name__ == "__main__":
     def h_helper(z, Q):
         return _h(model, z)
 
-    epochs = 30
+    epochs = 50
     loss_hist = []
     s_thermal_loss_hist = []
     S_loss_hist = []
@@ -170,14 +170,44 @@ if __name__ == "__main__":
             print("Loss is None or NaN, stopping training.")
             break
 
+    fig, ax = plt.subplots(3, 1, figsize=(10, 15))
+
+    # S(l)
+    plt.sca(ax[0])
     plt.plot(l_pred.detach().cpu().numpy(), S_pred.detach().cpu().numpy(), label="NN")
-    plt.plot(l_true, S_true, label="True")
+    plt.scatter(l_true, S_true, label="True", c="red", s=1)
     l_list = np.linspace(0, 3.5, 100)
     interpolated_S = np.array([f_for_fit(l, *popt) for l in l_list])
     plt.plot(l_list, interpolated_S, label="Interpolated", ls="--")
-    plt.xlabel("l")
+    plt.xlabel(r"$\ell$")
     plt.ylabel("S")
     plt.title(f"beta={beta}, mu={mu}")
     plt.legend()
-    plt.ylim(-5, 5.5)
+    plt.ylim(-5, 2.5)
+
+    # l(zstar)
+    plt.sca(ax[1])
+    plt.plot(
+        zstar_list.detach().cpu().numpy(),
+        l_pred.detach().cpu().numpy(),
+        label=r"$\ell$ (NN)",
+    )
+    plt.scatter(zstar, l_true, label=r"$\ell$ (True)", c="red", s=1)
+    plt.xlabel(r"$z_star$")
+    plt.ylabel(r"$\ell$")
+    plt.title(rf"$\ell$ vs $z_\star$, beta={beta}, mu={mu}")
+    plt.legend()
+
+    # S(zstar)
+    plt.sca(ax[2])
+    plt.plot(
+        zstar_list.detach().cpu().numpy(),
+        S_pred.detach().cpu().numpy(),
+        label=r"$S$ (NN)",
+    )
+    plt.scatter(zstar, S_true, label=r"$S$ (True)", c="red", s=1)
+    plt.xlabel(r"$z_star$")
+    plt.ylabel(r"$S$")
+    plt.title(rf"$S$ vs $z_star$, beta={beta}, mu={mu}")
+    plt.legend()
     plt.show()
