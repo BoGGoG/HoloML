@@ -86,7 +86,7 @@ if __name__ == "__main__":
 
     # Define the parameters for the BTZ black hole
     c, v, beta = 24 * np.pi, 1.0, 2 * np.pi
-    N_zstar_points = 1000
+    N_zstar_points = 200
     clipping_value = 1.0
 
     # load data
@@ -113,7 +113,7 @@ if __name__ == "__main__":
         dtype=torch.float64,
     )
 
-    model = BTZ_NN(input_dim=1, output_dim=1, hidden_layers=[32, 32, 32])
+    model = BTZ_NN(input_dim=1, output_dim=1, hidden_layers=[16, 16])
     model.to(torch.float64)  # Ensure model uses float64 precision
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
     scheduler = optim.lr_scheduler.MultiStepLR(
@@ -123,7 +123,7 @@ if __name__ == "__main__":
     def h_helper(z):
         return _h(model, z)
 
-    epochs = 50
+    epochs = 500
     loss_hist = []
     s_thermal_loss_hist = []
     S_loss_hist = []
@@ -157,7 +157,7 @@ if __name__ == "__main__":
         loss = losses["loss"]
         lr = optimizer.param_groups[0]["lr"]
         print(
-            f"e={epoch}/{epochs}, s_thermal={s_thermal_pred.item():.3f}, lr={lr}, loss={loss.item():.3f}"
+            f"e={epoch}/{epochs}, thermal_loss={losses['s_thermal_loss'].item():.4f}, lr={lr}, loss={loss.item():.3f}"
         )
 
         optimizer.zero_grad()
@@ -174,10 +174,15 @@ if __name__ == "__main__":
             print("Loss is None or NaN, stopping training.")
             break
 
-    fig, ax = plt.subplots(5, 1, figsize=(10, 25))
+    fig, ax = plt.subplots(5, 1, figsize=(10, 20))
 
     # print(f"{S_pred=}")
     # S_pred = (c / 6.0) * S_pred
+
+    print(f"{model.fac1=}")
+    print(f"{model.fac2=}")
+    print(f"{model.fac1/model.fac2=}")
+    print(f"{model.fac2/model.fac1=}")
 
     # S(l)
     plt.sca(ax[0])

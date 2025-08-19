@@ -94,9 +94,7 @@ def generate_BTZ_data(cvbeta: np.ndarray, Nzstar: int = 1000):
 
 
 class BTZ_NN(nn.Module):
-    def __init__(
-        self, input_dim, output_dim, hidden_layers, a: float = 0.0, fac: float = 1.0
-    ):
+    def __init__(self, input_dim, output_dim, hidden_layers, a: float = 0.0):
         super(BTZ_NN, self).__init__()
 
         # Combine input layer, hidden layers, and output layer into one list
@@ -120,7 +118,8 @@ class BTZ_NN(nn.Module):
         self.network_h = nn.Sequential(*layers_h)
 
         self.a = nn.Parameter(torch.tensor(a))
-        self.fac = nn.Parameter(torch.tensor(fac))
+        self.fac1 = nn.Parameter(torch.tensor(1.0))  # factor to scale log part of S
+        self.fac2 = nn.Parameter(torch.tensor(1.0))  # factor to scale log part of S
 
     def forward(self, x):
         """
@@ -129,14 +128,14 @@ class BTZ_NN(nn.Module):
         f_out = (1 - x) * (1 + (self.a + 1) * x - torch.pow(x, 2) * self.network_f(x))
         h_out = 1 + self.a * x - torch.pow(x, 2) * self.network_h(x)
         # h_out = 1 - self.network_h(x)
-        return f_out, h_out, self.fac
+        return f_out, h_out
 
 
 def _h(model, z):
     """watch out, needs model to be defined"""
     if len(z.shape) == 0:
         z = torch.unsqueeze(z, 0)
-    f_out, h_out, fac = model(z)
+    f_out, h_out = model(z)
     return h_out
 
 
@@ -147,7 +146,7 @@ def _f(model, z):
     """
     if len(z.shape) == 0:
         z = torch.unsqueeze(z, 0)
-    f_out, h_out, fac = model(z)
+    f_out, h_out = model(z)
     return f_out
 
 
@@ -173,7 +172,6 @@ def S_integral_NN(model, zstar: Tensor, N_GL: int = 12) -> Tensor:
     integrator = GaussLegendre()
 
     out = []
-    fac = model.fac
     for zstar_i in zstar:
         integration_domain = torch.tensor([[0, zstar_i - eps]])
         func = partial(SFiniteIntegrant, model=model, zstar=zstar_i)
@@ -181,10 +179,9 @@ def S_integral_NN(model, zstar: Tensor, N_GL: int = 12) -> Tensor:
             func, integration_domain=integration_domain, N=N_GL, dim=1
         )
         # result = result - 1.0 / zstar_i
-        result = result + torch.log(
+        result = model.fac1 * result + model.fac2 * torch.log(
             zstar_i
         )  # add log(zstar) to get finite entropy ((4.25) instead of (2.5) here for BTZ)
-        result = result * fac
         out.append(result)
     return torch.stack(out)
 
