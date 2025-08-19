@@ -12,8 +12,25 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch import Tensor
-from torchquad import GaussLegendre
+from torchquad import GaussLegendre, set_up_backend
 from functools import partial
+
+
+# Use this to enable GPU support and set the floating point precision
+set_up_backend("torch", data_type="float64")
+torch.set_default_dtype(torch.float64)
+# torch.set_default_device("cuda:0")
+torch.set_default_device("cuda:0")
+
+
+def f_true(z: Tensor):
+    """(4.27) in paper"""
+    return 1.0 - torch.pow(z, 2)
+
+
+def h_true(z: Tensor):
+    """just 1 for all z"""
+    return torch.ones(size=z.shape, device=z.device)
 
 
 def SData(c: float, beta: float, v: float, l: Tensor) -> Tensor:
@@ -31,14 +48,15 @@ def l_func(zstar: Tensor) -> Tensor:
 
 
 def h_func(zstar: Tensor) -> Tensor:
-    return torch.tensor(1)
+    return torch.tensor(1.0)
 
 
 def get_thermal_entropy(h, zh: Tensor) -> Tensor:
     """s = L^2 h(z) / (4 G_N z^2) at z=zh (horizon)
-    Here we set the constant L^2 / (4 G_N) = 1.
+    Here we set the constant c = 3L/2G_N, so s = 4 pi sqrt(h(z_h)) / z_h
+    Make sure to provide the NN for h here and not the true h, otherwise it's kind of circular/cheating.
     """
-    out = torch.sqrt(h(zh)) / zh
+    out = 4 * np.pi * torch.sqrt(h(zh)) / zh
     return out
 
 
@@ -76,7 +94,9 @@ def generate_BTZ_data(cvbeta: np.ndarray, Nzstar: int = 1000):
 
 
 class BTZ_NN(nn.Module):
-    def __init__(self, input_dim, output_dim, hidden_layers, a: float = 0.0):
+    def __init__(
+        self, input_dim, output_dim, hidden_layers, a: float = 0.0, fac: float = 1.0
+    ):
         super(BTZ_NN, self).__init__()
 
         # Combine input layer, hidden layers, and output layer into one list
@@ -100,6 +120,7 @@ class BTZ_NN(nn.Module):
         self.network_h = nn.Sequential(*layers_h)
 
         self.a = nn.Parameter(torch.tensor(a))
+        self.fac = nn.Parameter(torch.tensor(fac))
 
     def forward(self, x):
         """
@@ -107,14 +128,15 @@ class BTZ_NN(nn.Module):
         """
         f_out = (1 - x) * (1 + (self.a + 1) * x - torch.pow(x, 2) * self.network_f(x))
         h_out = 1 + self.a * x - torch.pow(x, 2) * self.network_h(x)
-        return f_out, h_out
+        # h_out = 1 - self.network_h(x)
+        return f_out, h_out, self.fac
 
 
 def _h(model, z):
     """watch out, needs model to be defined"""
     if len(z.shape) == 0:
         z = torch.unsqueeze(z, 0)
-    f_out, h_out = model(z)
+    f_out, h_out, fac = model(z)
     return h_out
 
 
@@ -125,57 +147,56 @@ def _f(model, z):
     """
     if len(z.shape) == 0:
         z = torch.unsqueeze(z, 0)
-    f_out, h_out = model(z)
+    f_out, h_out, fac = model(z)
     return f_out
 
 
 def SFiniteIntegrant(z, model, zstar) -> torch.Tensor:
+    """Different for BTZ because 1D
+    (4.25) instead of (2.5) here for BTZ
+    """
     integrand = torch.sqrt(
-        _h(model, z)
+        1
         / (
-            (
-                1
-                - torch.pow(z, 4)
-                * _h(model, zstar) ** 2
-                / (zstar**4 * torch.pow(_h(model, z), 2))
-            )
+            (1 - torch.pow(z, 2) * _h(model, zstar) / (zstar**2 * _h(model, z)))
             * _f(model, z)
         )
     )
-    integrand = torch.clamp(integrand, max=1e8)  # avoid numerical issues
-    integrand = torch.clamp(
-        (integrand - 1) / torch.pow(z, 2), max=1e8
-    )  # avoid numerical issues
+    # integrand = torch.clamp(integrand, max=1e8)  # avoid numerical issues
+    integrand = torch.clamp((integrand - 1) / z, max=1e8)  # avoid numerical issues
     return integrand
 
 
 def S_integral_NN(model, zstar: Tensor, N_GL: int = 12) -> Tensor:
-    eps = 1e-8  # need to avoid singularity at z=0. Tried also with
+    """Different for BTZ because 1D"""
+    eps = 1e-8  # need to avoid singularity at z=0
     integrator = GaussLegendre()
 
     out = []
+    fac = model.fac
     for zstar_i in zstar:
         integration_domain = torch.tensor([[0, zstar_i - eps]])
         func = partial(SFiniteIntegrant, model=model, zstar=zstar_i)
         result = integrator.integrate(
             func, integration_domain=integration_domain, N=N_GL, dim=1
         )
-        result = result - 1.0 / zstar_i
+        # result = result - 1.0 / zstar_i
+        result = result + torch.log(
+            zstar_i
+        )  # add log(zstar) to get finite entropy ((4.25) instead of (2.5) here for BTZ)
+        result = result * fac
         out.append(result)
     return torch.stack(out)
 
 
 def lIntegrand_NN(alpha: Tensor, zstar: Tensor, model) -> Tensor:
+    """Different for BTZ because 1D
+    (4.26) instead here for BTZ
+    """
     out = 1.0 / torch.sqrt(
         _h(model, alpha)
         * _f(model, alpha)
-        * (
-            torch.pow(_h(model, alpha), 2)
-            * zstar**4
-            / _h(model, zstar) ** 2
-            / torch.pow(alpha, 4)
-            - 1
-        )
+        * (_h(model, alpha) * zstar**2 / _h(model, zstar) / torch.pow(alpha, 2) - 1)
     )
     return torch.clamp(out, max=1e8)
 
