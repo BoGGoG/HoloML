@@ -3,8 +3,7 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 from jax import jit
-from matplotlib.cm import ScalarMappable
-from matplotlib.colors import Normalize
+from functools import partial
 
 
 @jit
@@ -44,7 +43,171 @@ def get_derivs(state, lam):
     return jnp.array([dv, dr, dx, d_dv, d_dr, d_dx])
 
 
-# --- 2. The Integrator (RK4 with jax.lax.scan) ---
+@jit
+def ds_dlambda(state):
+    """
+    Proper-length element for spacelike curve in Vaidya-AdS:
+    ds = sqrt(-f dv^2 + 2 dv dr + r^2 dx^2) dλ
+    """
+    v, r, x, dv, dr, dx = state
+    m = get_mass(v)
+    f = r**2 - m
+    inside = -f * dv**2 + 2.0 * dv * dr + (r**2) * dx**2
+    return jnp.sqrt(jnp.maximum(inside, 0.0))
+
+
+def geodesic_length_reg(L, r_cut):
+    r"""
+    The paper defines a regularized length by subtracting the universal divergence
+    $2 \log(2 r_\infty)$
+    (see around eq. (6.17); also consistent with the BTZ expression eq. (5.33)).
+    """
+    return L - 2.0 * jnp.log(2.0 * r_cut)
+
+
+def lengths_vs_rstar(rstars, v0, n_steps=40000, dt=0.002, r_cut=200.0):
+    """
+    Compute (regularized) spacelike geodesic lengths in Vaidya–AdS as a function of
+    turning point radius r_star.
+
+    For each `r_star` in `rstars`, this function:
+      1) Numerically integrates the geodesic from the turning point (r=r_star) outward
+         using `integrate_geodesic(...)` for a fixed number of steps `n_steps` and step
+         size `dt` (affine parameter increment).
+      2) Computes the total proper length L by integrating the line element along the
+         trajectory up to a UV cutoff radius `r_cut` via `geodesic_length_from_traj(...)`
+         (typically doubling the “half-geodesic” length by symmetry).
+      3) Computes the UV-regularized length L_reg via `geodesic_length_reg(L, r_cut)`.
+      4) Records diagnostics at the cutoff: the boundary half-width h = x(r_cut) and
+         the corresponding advanced time v_inf = v(r_cut).
+
+    Parameters
+    ----------
+    rstars : array-like
+        Iterable of turning point radii r_star (the minimal radius reached by each
+        spacelike geodesic).
+    v0 : float
+        Initial advanced time at the turning point, v(λ=0) = v0.
+    n_steps : int, optional
+        Number of integration steps for the geodesic solver. Must be a Python `int`
+        when passed into JAX-jitted code (hence the explicit `int(n_steps)` cast).
+    dt : float, optional
+        Step size in the affine parameter used by the geodesic integrator.
+    r_cut : float, optional
+        UV cutoff radius that defines where the trajectory is “read out” at the
+        boundary and where the length regularization is performed.
+
+    Returns
+    -------
+    Ls : np.ndarray, shape (len(rstars),)
+        Total (unregularized) proper lengths L for each r_star.
+    Lregs : np.ndarray, shape (len(rstars),)
+        UV-regularized lengths L_reg for each r_star.
+    hs : np.ndarray, shape (len(rstars),)
+        Boundary half-widths h = x(r_cut) extracted at the cutoff.
+    vins : np.ndarray, shape (len(rstars),)
+        Advanced time values v_inf = v(r_cut) extracted at the cutoff.
+
+    Notes
+    -----
+    - The cutoff index `hit` is taken as the first index where r >= r_cut. If the
+      trajectory never reaches r_cut within `n_steps`, `hit` falls back to the final
+      integration step; in that case, the reported (L, L_reg, h, v_inf) correspond to
+      the endpoint reached rather than the intended UV cutoff.
+    - For performance, keep `n_steps` fixed across sweeps to avoid repeated JAX
+      recompilation if `integrate_geodesic` treats `n_steps` as a static argument.
+    """
+    Ls = []
+    Lregs = []
+    hs = []  # boundary half-width h = x(r_cut), useful diagnostic
+    vins = []  # boundary v value at cutoff, also useful
+
+    for r_star in rstars:
+        traj = integrate_geodesic(r_star, v0, n_steps=int(n_steps), dt=float(dt))
+
+        # length
+        L = geodesic_length_from_traj(traj, dt=dt, r_cut=r_cut)
+        Lreg = geodesic_length_reg(L, r_cut=r_cut)
+
+        # where we hit the cutoff
+        r = traj[:, 1]
+        hit = np.argmax(np.array(r >= r_cut))
+        if not np.any(np.array(r >= r_cut)):
+            hit = traj.shape[0] - 1
+
+        h = float(traj[hit, 2])  # x at the cutoff
+        v_inf = float(traj[hit, 0])
+
+        Ls.append(float(L))
+        Lregs.append(float(Lreg))
+        hs.append(h)
+        vins.append(v_inf)
+
+    return np.array(Ls), np.array(Lregs), np.array(hs), np.array(vins)
+
+
+def geodesic_length_from_traj(traj, dt, r_cut=200.0):
+    """
+    traj: (N, 6) array [v, r, x, dv, dr, dx]
+    Returns total length L (full geodesic, both sides).
+    """
+    r = traj[:, 1]
+    # first index where r exceeds cutoff
+    hit = jnp.argmax(r >= r_cut)
+    # if never hits, use full trajectory
+    hit = jnp.where(jnp.any(r >= r_cut), hit, traj.shape[0] - 1)
+
+    seg = traj[: hit + 1]
+    sdot = jax.vmap(ds_dlambda)(seg)  # ds/dλ along segment
+
+    # trapezoid integral for half-geodesic
+    L_half = dt * (0.5 * sdot[0] + jnp.sum(sdot[1:-1]) + 0.5 * sdot[-1])
+
+    return 2.0 * L_half
+
+
+def length_profile_vs_x(traj, dt, r_cut=200.0):
+    """
+    Return cumulative proper length along the *half*-geodesic as a function of x.
+
+    Parameters
+    ----------
+    traj : array, shape (N, 6)
+        (v, r, x, dv, dr, dx) samples along affine parameter λ.
+    dt : float
+        Step size in λ.
+    r_cut : float
+        UV cutoff radius. We truncate at the first index where r >= r_cut.
+
+    Returns
+    -------
+    x : np.ndarray, shape (M,)
+        x-values along the half-geodesic (from 0 outward).
+    L_half : np.ndarray, shape (M,)
+        Cumulative proper length from λ=0 to the point with coordinate x.
+        (So L_half[0]=0 and L_half increases outward.)
+    """
+    r = np.array(traj[:, 1])
+    # first index where r exceeds cutoff (or last point if never hits)
+    hit = int(np.argmax(r >= r_cut))
+    if not np.any(r >= r_cut):
+        hit = traj.shape[0] - 1
+
+    seg = traj[: hit + 1]
+
+    # ds/dλ along segment (use your existing ds_dlambda)
+    sdot = np.array(jax.vmap(ds_dlambda)(seg))
+
+    # cumulative trapezoid integral:
+    # L[k] = ∫_0^{λ_k} sdot(λ) dλ
+    incr = 0.5 * (sdot[:-1] + sdot[1:]) * float(dt)
+    L = np.concatenate([[0.0], np.cumsum(incr)])
+
+    x = np.array(seg[:, 2], dtype=float)
+
+    # For safety: enforce monotonic x (should be monotone on the half-geodesic)
+    order = np.argsort(x)
+    return x[order], L[order]
 
 
 @jit
@@ -56,18 +219,69 @@ def rk4_step(state, dt):
     return state + (dt / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
 
 
-@jit
+@partial(jax.jit, static_argnames=("n_steps",))
 def integrate_geodesic(r_star, v0, n_steps=2000, dt=0.005):
     """
-    Integrates a single geodesic starting from the turning point (r_star).
+    Integrate a single *spacelike* geodesic in 3D Vaidya–AdS starting from its turning point.
+
+    This routine evolves the first-order state vector
+
+        state(λ) = (v(λ), r(λ), x(λ), v'(λ), r'(λ), x'(λ))
+
+    where prime denotes derivative w.r.t. the affine parameter λ, using a fixed-step
+    fourth-order Runge–Kutta (RK4) integrator inside a `jax.lax.scan` loop.
+
+    Geometry / equations
+    --------------------
+    The background is the (2+1)-dimensional Vaidya–AdS metric in ingoing EF-like
+    coordinates:
+
+        ds^2 = -f(r,v) dv^2 + 2 dv dr + r^2 dx^2,   with  f(r,v) = r^2 - m(v).
+
+    The function `get_derivs(...)` implements the corresponding geodesic equations
+    as a first-order system returning (v', r', x', v'', r'', x'').
+
+    Initial conditions (turning point)
+    ----------------------------------
+    The integration starts at λ = 0 at the symmetric turning point:
+
+        v(0)  = v0
+        r(0)  = r_star            (minimal radius)
+        x(0)  = 0                 (symmetry axis)
+        v'(0) = 0                 (symmetry)
+        r'(0) = 0                 (turning point condition)
+        x'(0) = 1 / r_star        (normalization choice for a unit-speed spacelike curve at λ=0)
+
+    Only the “forward” half-geodesic (from r=r_star outward) is integrated; when
+    computing observables like the full geodesic length, the other half is typically
+    obtained by symmetry (doubling).
+
+    Parameters
+    ----------
+    r_star : float
+        Turning point radius (minimal r reached by the geodesic).
+    v0 : float
+        Advanced time at the turning point, v(0)=v0.
+    n_steps : int, optional
+        Number of RK4 steps to take. **Must be a Python int** because this function is
+        JIT-compiled and `lax.scan(..., length=n_steps)` requires a static loop length.
+        Changing `n_steps` will trigger recompilation.
+    dt : float, optional
+        Step size Δλ for the affine parameter.
+
+    Returns
+    -------
+    trajectory : jax.Array, shape (n_steps, 6)
+        The integrated state at each step (v, r, x, v', r', x').
+
+    Notes
+    -----
+    - This function does not implement an event-based stop condition (e.g. stop when
+      r reaches a UV cutoff r_cut). If you need that, truncate the returned trajectory
+      afterward, or switch to a `lax.while_loop` integrator.
+    - Because the routine is JIT-compiled, passing non-Python scalars for `n_steps`
+      (e.g. numpy/jax int types) will raise a ConcretizationTypeError.
     """
-    # Initial Conditions at turning point (lambda=0):
-    # v = v0
-    # r = r_star (minimal radius)
-    # x = 0 (symmetry axis)
-    # dv = 0 (symmetry)
-    # dr = 0 (turning point condition)
-    # dx = 1/r_star (from normalization condition: g_uv u^u u^v = 1)
 
     initial_state = jnp.array([v0, r_star, 0.0, 0.0, 0.0, 1.0 / r_star])
 
@@ -79,73 +293,3 @@ def integrate_geodesic(r_star, v0, n_steps=2000, dt=0.005):
     final_state, trajectory = jax.lax.scan(step_fn, initial_state, None, length=n_steps)
 
     return trajectory
-
-
-def plot_figure_5():
-    v0_values = [-2, -1, 0, 0.1, 0.5, 1]
-    r_stars = list(np.linspace(0.0001, 0.0009, 10))
-    r_stars = list(np.linspace(0.001, 0.009, 10))
-    r_stars += list(np.linspace(0.01, 0.09, 50))
-    r_stars += list(np.linspace(0.1, 0.9, 50))
-    r_stars += list(np.linspace(1.1, 20.0, 50))
-
-    # Setup Colormap
-    norm = Normalize(vmin=min(r_stars), vmax=max(r_stars))
-    cmap = plt.cm.cool
-    sm = ScalarMappable(norm=norm, cmap=cmap)
-    sm.set_array([])
-
-    # Create figure with specific layout adjustment
-    fig, axes = plt.subplots(2, 3, figsize=(14, 8), subplot_kw={"projection": "polar"})
-
-    # Adjust subplots to leave room on the right for the colorbar
-    # left, bottom, right, top parameters define the plotting area
-    plt.subplots_adjust(right=0.85, wspace=0.3, hspace=0.3)
-
-    axes_flat = axes.flatten()
-
-    for i, v0 in enumerate(v0_values):
-        ax = axes_flat[i]
-
-        # Boundary
-        theta_boundary = np.linspace(-np.pi / 2, np.pi / 2, 100)
-        ax.plot(theta_boundary, [np.pi / 2] * 100, "k-", linewidth=2)
-
-        # Horizon
-        m_val = np.tanh(v0)
-        if m_val > 0:
-            r_horizon = np.sqrt(m_val)  # apparent horizon
-            R_horizon = np.arctan(r_horizon)
-            theta_h = np.linspace(0, 2 * np.pi, 200)
-            ax.plot(theta_h, [R_horizon] * 200, color="brown", linewidth=2)
-
-        # Geodesics
-        for r_star in r_stars:
-            if m_val > 0 and r_star <= np.sqrt(m_val):
-                continue
-
-            traj = integrate_geodesic(r_star, v0)
-            v_t, r_t, x_t = traj[:, 0], traj[:, 1], traj[:, 2]
-            R_plot = np.arctan(r_t)
-            color = cmap(norm(r_star))
-
-            ax.plot(x_t, R_plot, color=color, linewidth=1)
-            ax.plot(-x_t, R_plot, color=color, linewidth=1)
-
-        ax.set_title(r"$v_0$" + f"= {v0}", fontsize=12)
-        ax.set_ylim(0, np.pi / 2 + 0.1)
-        ax.set_yticks([])
-        ax.set_xticks([])
-        ax.spines["polar"].set_visible(False)
-
-    # Manually add axes for the colorbar to the right of the subplots
-    # [left, bottom, width, height] in figure coordinate fractions
-    cbar_ax = fig.add_axes([0.88, 0.15, 0.02, 0.7])
-    cbar = fig.colorbar(sm, cax=cbar_ax)
-    cbar.set_label(r"Turning Point ($r_*$)", fontsize=12)
-
-    plt.show()
-
-
-if __name__ == "__main__":
-    plot_figure_5()
