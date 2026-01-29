@@ -7,15 +7,21 @@ from functools import partial
 
 
 @jit
-def get_mass(v, m_0=1.0, v_s=1.0):
-    # Profile from the paper: m(v) = tanh(v) for v_s=1, m_0=1
-    # Generally: (m_0 + 1.0)/2.0 *tanh(v/v_s) + (m_0 - 1.0)/2.0
-    m = (m_0 + 1.0) / 2.0 * jnp.tanh(v / v_s) + (m_0 - 1.0) / 2.0
-    return m
+def get_mass_and_dmdv(v, m_0=1.0, v_s=1.0):
+    """
+    Returns m(v) and dm/dv for
+        m(v) = (m0+1)/2 * tanh(v/vs) + (m0-1)/2
+    """
+    z = v / v_s
+    t = jnp.tanh(z)
+    m = (m_0 + 1.0) / 2.0 * t + (m_0 - 1.0) / 2.0
+    sech2 = 1.0 - t**2
+    dm_dv = (m_0 + 1.0) / 2.0 * (1.0 / v_s) * sech2
+    return m, dm_dv
 
 
 @jit
-def get_derivs(state, lam):
+def get_derivs(state, lam, m_0=1.0, v_s=1.0):
     """
     Calculates derivatives [dv, dr, dx, d_dv, d_dr, d_dx]
     based on the geodesic equations for 3D Vaidya-AdS.
@@ -23,9 +29,7 @@ def get_derivs(state, lam):
     """
     v, r, x, dv, dr, dx = state
 
-    m = get_mass(v)
-    dm_dv = 1.0 - jnp.tanh(v) ** 2  # Derivative of tanh is sech^2
-
+    m, dm_dv = get_mass_and_dmdv(v, m_0=m_0, v_s=v_s)
     f = r**2 - m
     df_dr = 2 * r
     df_dv = -dm_dv
@@ -50,7 +54,7 @@ def ds_dlambda(state):
     ds = sqrt(-f dv^2 + 2 dv dr + r^2 dx^2) dλ
     """
     v, r, x, dv, dr, dx = state
-    m = get_mass(v)
+    m, _ = get_mass_and_dmdv(v)
     f = r**2 - m
     inside = -f * dv**2 + 2.0 * dv * dr + (r**2) * dx**2
     return jnp.sqrt(jnp.maximum(inside, 0.0))
@@ -63,6 +67,16 @@ def geodesic_length_reg(L, r_cut):
     (see around eq. (6.17); also consistent with the BTZ expression eq. (5.33)).
     """
     return L - 2.0 * jnp.log(2.0 * r_cut)
+
+
+def speed_stats(traj):
+    sdot = np.array(jax.vmap(ds_dlambda)(traj))
+    return {
+        "min": float(sdot.min()),
+        "mean": float(sdot.mean()),
+        "max": float(sdot.max()),
+        "std": float(sdot.std()),
+    }
 
 
 def lengths_vs_rstar(rstars, v0, n_steps=40000, dt=0.002, r_cut=200.0):
@@ -123,7 +137,9 @@ def lengths_vs_rstar(rstars, v0, n_steps=40000, dt=0.002, r_cut=200.0):
     vins = []  # boundary v value at cutoff, also useful
 
     for r_star in rstars:
-        traj = integrate_geodesic(r_star, v0, n_steps=int(n_steps), dt=float(dt))
+        traj = integrate_geodesic(
+            r_star, v0, n_steps=int(n_steps), dt=float(dt), m_0=1.0, v_s=1.0
+        )
 
         # length
         L = geodesic_length_from_traj(traj, dt=dt, r_cut=r_cut)
@@ -211,16 +227,16 @@ def length_profile_vs_x(traj, dt, r_cut=200.0):
 
 
 @jit
-def rk4_step(state, dt):
-    k1 = get_derivs(state, 0.0)
-    k2 = get_derivs(state + 0.5 * dt * k1, 0.0)
-    k3 = get_derivs(state + 0.5 * dt * k2, 0.0)
-    k4 = get_derivs(state + dt * k3, 0.0)
+def rk4_step(state, dt, m_0=1.0, v_s=1.0):
+    k1 = get_derivs(state, 0.0, m_0=m_0, v_s=v_s)
+    k2 = get_derivs(state + 0.5 * dt * k1, 0.0, m_0=m_0, v_s=v_s)
+    k3 = get_derivs(state + 0.5 * dt * k2, 0.0, m_0=m_0, v_s=v_s)
+    k4 = get_derivs(state + dt * k3, 0.0, m_0=m_0, v_s=v_s)
     return state + (dt / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
 
 
 @partial(jax.jit, static_argnames=("n_steps",))
-def integrate_geodesic(r_star, v0, n_steps=2000, dt=0.005):
+def integrate_geodesic(r_star, v0, n_steps=2000, dt=0.005, m_0=1.0, v_s=1.0):
     """
     Integrate a single *spacelike* geodesic in 3D Vaidya–AdS starting from its turning point.
 
@@ -286,7 +302,7 @@ def integrate_geodesic(r_star, v0, n_steps=2000, dt=0.005):
     initial_state = jnp.array([v0, r_star, 0.0, 0.0, 0.0, 1.0 / r_star])
 
     def step_fn(state, _):
-        new_state = rk4_step(state, dt)
+        new_state = rk4_step(state, dt, m_0=m_0, v_s=v_s)
         return new_state, new_state
 
     # Integrate forward

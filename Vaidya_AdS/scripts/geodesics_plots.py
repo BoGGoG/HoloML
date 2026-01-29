@@ -4,23 +4,24 @@ from pathlib import Path
 
 import jax
 import jax.numpy as jnp
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 from jax import jit
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
-import matplotlib as mpl
 
 parent_dir = Path(__file__).resolve().parent.parent
 sys.path.append(str(parent_dir))
-from src.Vaidya_AdS import (
-    integrate_geodesic,
-    lengths_vs_rstar,
-    geodesic_length_from_traj,
-    length_profile_vs_x,
-)
-
 import scienceplots
+from src.Vaidya_AdS import (
+    geodesic_length_from_traj,
+    get_mass_and_dmdv,
+    integrate_geodesic,
+    length_profile_vs_x,
+    lengths_vs_rstar,
+    speed_stats,
+)
 
 plt.style.use(["science", "grid"])
 mpl.rcParams.update(
@@ -89,7 +90,7 @@ def plot_figure_5(plots_dir):
         ax.plot(theta_boundary, [np.pi / 2] * 100, "k-", linewidth=2)
 
         # Horizon
-        m_val = np.tanh(v0)
+        m_val, _ = get_mass_and_dmdv(v0, m_0=1.0, v_s=1.0)
         if m_val > 0:
             r_horizon = np.sqrt(m_val)  # apparent horizon
             R_horizon = np.arctan(r_horizon)
