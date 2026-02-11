@@ -13,6 +13,7 @@ from matplotlib.colors import Normalize
 
 parent_dir = Path(__file__).resolve().parent.parent
 sys.path.append(str(parent_dir))
+import jax
 import scienceplots
 from src.Vaidya_AdS import (
     geodesic_length_from_traj,
@@ -22,6 +23,8 @@ from src.Vaidya_AdS import (
     lengths_vs_rstar,
     speed_stats,
 )
+
+jax.config.update("jax_enable_x64", True)
 
 plt.style.use(["science", "grid"])
 mpl.rcParams.update(
@@ -132,7 +135,7 @@ def plot_lengths_sweep(
     rstar_min=1e-3,
     rstar_max=20.0,
     n_rstars=200,
-    n_steps=40000,
+    n_steps=100_000,
     dt=0.002,
     r_cut=200.0,
     out_dir=None,
@@ -229,7 +232,7 @@ def plot_lengths_sweep(
         plt.close("all")
 
 
-def geodesics_and_lengths(v0_list, r_star_list, n_steps=40000, dt=0.002, r_cut=200.0):
+def geodesics_and_lengths(v0_list, r_star_list, n_steps=100_000, dt=0.002, r_cut=200.0):
     traj_list = []
     length_list = []
     v0_rstar_list = []
@@ -251,12 +254,12 @@ if __name__ == "__main__":
     plots_dir = Path("geodesics_plots")
     # plot_figure_5(plots_dir)
 
-    v0_list = [-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0]
+    v0_list = [-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0]
     r_star_list = list(np.linspace(0.001, 20, 100))
 
     ### Geodesic length vs r_star for multiple v0 ###
     traj_list, length_list, v0_rstar_list = geodesics_and_lengths(
-        v0_list, r_star_list, n_steps=40000, dt=0.002, r_cut=200.0
+        v0_list, r_star_list, n_steps=100_000, dt=0.0005, r_cut=200.0
     )
 
     # plot length vs r_star for each v0
@@ -337,14 +340,14 @@ if __name__ == "__main__":
     plt.close(fig)
 
     ### Geodesic length profile L_half(x) for various r_star ###
-    r_star_list = [0.01, 0.1, 1.0, 2.0, 5.0, 10.0]
+    r_star_list = [0.01, 0.1, 1.0, 1.5, 2.0, 5.0, 10.0]
     for r_star in r_star_list:
         fig, ax = plt.subplots(1, 1, figsize=(8, 5))
         colors = plt.cm.viridis(np.linspace(0, 1, len(v0_list)))
 
         for v0, c in zip(v0_list, colors):
-            traj = integrate_geodesic(r_star, v0, n_steps=40000, dt=0.002)
-            x, Lx = length_profile_vs_x(traj, dt=0.002, r_cut=200.0)
+            traj = integrate_geodesic(r_star, v0, n_steps=100_000, dt=0.0005)
+            x, Lx = length_profile_vs_x(traj, dt=0.0005, r_cut=200.0)
             ax.plot(x, Lx, color=c, label=rf"$v_0={v0:g}$")
 
         ax.set_xlabel(r"$x$")
@@ -355,6 +358,7 @@ if __name__ == "__main__":
         ax.grid(True, linestyle=":")
         ax.legend(frameon=False)
         ax.set_ylim(0, 8)
+        ax.set_xlim(0, 5)
         fig.tight_layout()
         plot_path = plots_dir / f"length_profile_vs_x_rstar{r_star}.png"
         plt.savefig(plot_path, dpi=200)
@@ -366,8 +370,8 @@ if __name__ == "__main__":
         colors = plt.cm.viridis(np.linspace(0, 1, len(r_star_list)))
 
         for r_star, c in zip(r_star_list, colors):
-            traj = integrate_geodesic(r_star, v0, n_steps=40000, dt=0.002)
-            x, Lx = length_profile_vs_x(traj, dt=0.002, r_cut=200.0)
+            traj = integrate_geodesic(r_star, v0, n_steps=100_000, dt=0.0005)
+            x, Lx = length_profile_vs_x(traj, dt=0.0005, r_cut=200.0)
             ax.plot(x, Lx, color=c, label=rf"$r_\ast={r_star}$")
 
         ax.set_xlabel(r"$x$")
@@ -378,7 +382,90 @@ if __name__ == "__main__":
         ax.grid(True, linestyle=":")
         ax.legend(frameon=False)
         ax.set_ylim(0, 8)
+        ax.set_xlim(0, 5)
         fig.tight_layout()
         plot_path = plots_dir / f"length_profile_vs_x_v0{v0}.png"
+        plt.savefig(plot_path, dpi=200)
+        print(f"Saved figure to {plot_path}")
+        plt.close(fig)
+
+    for v0 in v0_list:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+        colors = plt.cm.viridis(np.linspace(0, 1, len(r_star_list)))
+
+        for r_star, c in zip(r_star_list, colors):
+            traj = integrate_geodesic(r_star, v0, n_steps=100_000, dt=0.0005)
+            x, Lx = length_profile_vs_x(traj, dt=0.0005, r_cut=200.0)
+            # take arctanh of x
+            x = np.arctanh(x)  # r_cut=200.0
+            ax.plot(x, Lx, color=c, label=rf"$r_\ast={r_star}$")
+
+        ax.set_xlabel(r"$arctanh(x)$")
+        ax.set_ylabel(r"$L_{\mathrm{half}}(x)$")
+        ax.set_title(
+            rf"Geodesic length profile $L_{{\mathrm{{half}}}}(x)$ for $v_0={v0:g}$"
+        )
+        ax.grid(True, linestyle=":")
+        ax.legend(frameon=False)
+        ax.set_ylim(0, 8)
+        ax.set_xlim(0, 5)
+        fig.tight_layout()
+        plot_path = plots_dir / f"length_profile_vs_arctanhx_v0{v0}.png"
+        plt.savefig(plot_path, dpi=200)
+        print(f"Saved figure to {plot_path}")
+
+    ### Regularized geodesic lengh vs boundary width h for various v0 ###
+    # L_reg = L - 2*log(2*r_cut) is the regularized length, where the divergent piece is subtracted off
+    for v0 in v0_list:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+        colors = plt.cm.viridis(np.linspace(0, 1, len(r_star_list)))
+        r_cut = 200.0
+
+        for r_star, c in zip(r_star_list, colors):
+            traj = integrate_geodesic(r_star, v0, n_steps=100_000, dt=0.0005)
+            x_half, Lx_half = length_profile_vs_x(traj, dt=0.0005, r_cut=r_cut)
+            Lx_reg = 2 * Lx_half - 2 * np.log(2 * 200.0)  # r_cut=200.0
+            x = 2 * x_half  # multiply by 2 to get full boundary width from half-width
+            ax.plot(x, Lx_reg, color=c, label=rf"$r_\ast={r_star}$")
+            print(f"v0={v0}, r_star={r_star}, h={x[-1]:.3f}, L_reg={Lx_reg[-1]:.3f}")
+
+        ax.set_xlabel(r"$h$")
+        ax.set_ylabel(r"$L_{\mathrm{{reg}}}(h)$")
+        ax.set_title(
+            rf"Regularized geodesic length profile $L_{{\mathrm{{reg}}}}(h)$ for $v_0={v0:g}$"
+        )
+        ax.grid(True, linestyle=":")
+        ax.legend(frameon=False)
+        ax.set_ylim(-15, 0)
+        ax.set_xlim(0, 8)
+        fig.tight_layout()
+        plot_path = plots_dir / f"regularized_length_profile_vs_h_v0{v0}.png"
+        plt.savefig(plot_path, dpi=200)
+        print(f"Saved figure to {plot_path}")
+
+    for v0 in v0_list:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+        colors = plt.cm.viridis(np.linspace(0, 1, len(r_star_list)))
+        r_cut = 200.0
+
+        for r_star, c in zip(r_star_list, colors):
+            traj = integrate_geodesic(r_star, v0, n_steps=100_000, dt=0.0005)
+            x_half, Lx_half = length_profile_vs_x(traj, dt=0.0005, r_cut=r_cut)
+            Lx_reg = 2 * Lx_half - 2 * np.log(2 * 200.0)  # r_cut=200.0
+            x = 2 * x_half  # multiply by 2 to get full boundary width from half-width
+            x = np.arctanh(x)
+            ax.plot(x, Lx_reg, color=c, label=rf"$r_\ast={r_star}$")
+
+        ax.set_xlabel(r"$h$")
+        ax.set_ylabel(r"$L_{\mathrm{{reg}}}(h)$")
+        ax.set_title(
+            rf"Regularized geodesic length profile $L_{{\mathrm{{reg}}}}(arctanh(h))$ for $v_0={v0:g}$"
+        )
+        ax.grid(True, linestyle=":")
+        ax.legend(frameon=False)
+        ax.set_ylim(-15, 0)
+        ax.set_xlim(0, 8)
+        fig.tight_layout()
+        plot_path = plots_dir / f"regularized_length_profile_vs_arctanhh_v0{v0}.png"
         plt.savefig(plot_path, dpi=200)
         print(f"Saved figure to {plot_path}")

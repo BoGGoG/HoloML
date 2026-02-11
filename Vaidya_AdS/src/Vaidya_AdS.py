@@ -150,6 +150,11 @@ def lengths_vs_rstar(rstars, v0, n_steps=40000, dt=0.002, r_cut=200.0):
         hit = np.argmax(np.array(r >= r_cut))
         if not np.any(np.array(r >= r_cut)):
             hit = traj.shape[0] - 1
+        max_r_reached = np.max(r)
+        if max_r_reached < r_cut:
+            print(
+                f"Warning: Geodesic only reached r={max_r_reached:.2f} (wanted {r_cut}). Increase n_steps."
+            )
 
         h = float(traj[hit, 2])  # x at the cutoff
         v_inf = float(traj[hit, 0])
