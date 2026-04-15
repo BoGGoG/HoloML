@@ -13,8 +13,10 @@ from matplotlib.colors import Normalize
 
 parent_dir = Path(__file__).resolve().parent.parent
 sys.path.append(str(parent_dir))
+import jax
 import scienceplots
 from src.Vaidya_AdS import (
+    ds_dlambda,
     geodesic_length_from_traj,
     geodesic_length_reg,
     get_mass_and_dmdv,
@@ -22,8 +24,9 @@ from src.Vaidya_AdS import (
     length_profile_vs_x,
     lengths_vs_rstar,
     speed_stats,
-    ds_dlambda,
 )
+
+jax.config.update("jax_enable_x64", True)
 
 plt.style.use(["science", "grid"])
 mpl.rcParams.update(
@@ -77,6 +80,24 @@ def geodesics_and_lengths(v0_list, r_star_list, n_steps=40000, dt=0.002, r_cut=2
     return traj_list, length_list, v0_rstar_list
 
 
+def estimate_orders_from_L(L):
+    """
+    Estimate observed order p from successive differences in L at refinements.
+    L: array shape (K,) for K refinement levels.
+    Returns p estimates array shape (K-2,), or empty if insufficient data.
+    """
+    L = np.asarray(L, dtype=float)
+    if L.size < 3:
+        return np.array([], dtype=float)
+    diffs = np.abs(L[1:] - L[:-1])  # length K-1
+    # p_i compares diffs[i] and diffs[i+1]
+    p = np.full(diffs.size - 1, np.nan, dtype=float)
+    for i in range(diffs.size - 1):
+        if diffs[i] > 0 and diffs[i + 1] > 0:
+            p[i] = np.log(diffs[i] / diffs[i + 1]) / np.log(2.0)
+    return p
+
+
 def convergence_test_with_plots(
     v0_list,
     r_star_list,
@@ -92,6 +113,12 @@ def convergence_test_with_plots(
       - L vs dt (per (v0,r_star))
       - |ΔL| vs dt (log-log)
       - optional: ds/dλ profiles for coarse vs fine
+
+    What to look for in the plots
+
+    In dL_vs_dt_loglog.png, the curves should be roughly straight and (ideally) parallel to the dashed dt4 dt 4 line once you’re in the asymptotic regime.
+
+    If speed profiles show spikes/oscillations at coarse dt that disappear at fine dt, your “physics” plots are not yet numerically reliable at the coarse dt.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -217,6 +244,85 @@ def convergence_test_with_plots(
     fig.savefig(out_dir / "dL_vs_dt_loglog.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
 
+    # ---------- Summary figure: observed order p heatmap over (v0, r_star) ----------
+    # Build p_mean matrix with shape (len(v0_list), len(r_star_list))
+    p_mean = np.full((len(v0_list), len(r_star_list)), np.nan, dtype=float)
+    p_std = np.full_like(p_mean, np.nan)
+
+    for i_v0, v0 in enumerate(v0_list):
+        for i_r, r_star in enumerate(r_star_list):
+            L = results[(float(v0), float(r_star))]["L"]
+            p_est = estimate_orders_from_L(L)  # length K-2
+            # Use the mean over available p estimates (typically 2-3 numbers)
+            if np.any(np.isfinite(p_est)):
+                p_mean[i_v0, i_r] = np.nanmean(p_est)
+                p_std[i_v0, i_r] = np.nanstd(p_est)
+
+    # Heatmap
+    fig, ax = plt.subplots(1, 1, figsize=(8.0, 4.5))
+
+    # Use a consistent extent so axes show actual parameter values
+    extent = [
+        float(min(r_star_list)),
+        float(max(r_star_list)),
+        float(min(v0_list)),
+        float(max(v0_list)),
+    ]
+
+    im = ax.imshow(
+        p_mean,
+        origin="lower",
+        aspect="auto",
+        extent=extent,
+        interpolation="nearest",
+    )
+
+    ax.set_xlabel(r"$r_\ast$")
+    ax.set_ylabel(r"$v_0$")
+    ax.set_title(
+        "Observed convergence order $p$ (from successive refinements). Near p=4 is good."
+    )
+    # Values near p≈4 mean you’re in the RK4 asymptotic convergence regime (good).
+    # Much smaller p often indicates:
+    #     - you’re not yet at small enough dt,
+    #     - cutoff/truncation effects (geodesic not reaching r_cut similarly across refinements),
+    #     - or stiffness near the horizon / sharp shell region.
+
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label(r"$p$")
+
+    # Optional: annotate cells with p values (nice for small grids)
+    if len(v0_list) * len(r_star_list) <= 40:
+        for i_v0, v0 in enumerate(v0_list):
+            for i_r, r_star in enumerate(r_star_list):
+                val = p_mean[i_v0, i_r]
+                if np.isfinite(val):
+                    ax.text(
+                        float(r_star),
+                        float(v0),
+                        f"{val:.2f}",
+                        ha="center",
+                        va="center",
+                        fontsize=9,
+                    )
+
+    ax.grid(False)
+    fig.tight_layout()
+    fig.savefig(out_dir / "summary_order_heatmap.png", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+    # Also save p arrays for inspection
+    np.savez_compressed(
+        out_dir / "summary_orders.npz",
+        v0_list=np.array(v0_list, dtype=float),
+        r_star_list=np.array(r_star_list, dtype=float),
+        p_mean=p_mean,
+        p_std=p_std,
+    )
+
+    print(" - summary_order_heatmap.png")
+    print(" - summary_orders.npz")
+
     # ---------- Plot 3 (optional): speed profile ds/dλ for coarse vs fine ----------
     if make_speed_plots:
         for (v0, r_star), d in results.items():
@@ -322,7 +428,7 @@ if __name__ == "__main__":
         n_steps0=20000,
         dt0=0.004,
         n_refinements=4,
-        r_cut=200.0,
+        r_cut=50.0,
         out_dir=plots_dir / "convergence_test",
         make_speed_plots=True,
     )
