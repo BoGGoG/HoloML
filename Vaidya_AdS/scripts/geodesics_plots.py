@@ -2,18 +2,19 @@ import os
 import sys
 from pathlib import Path
 
-import jax
-import jax.numpy as jnp
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
-from jax import jit
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
 
 parent_dir = Path(__file__).resolve().parent.parent
 sys.path.append(str(parent_dir))
 import jax
+
+jax.config.update("jax_enable_x64", True)
+from jax import jit
+import jax.numpy as jnp
 import scienceplots
 from src.Vaidya_AdS import (
     geodesic_length_from_traj,
@@ -24,7 +25,6 @@ from src.Vaidya_AdS import (
     speed_stats,
 )
 
-jax.config.update("jax_enable_x64", True)
 
 plt.style.use(["science", "grid"])
 mpl.rcParams.update(
@@ -60,7 +60,7 @@ mpl.rcParams.update(
 )
 
 
-def plot_figure_5(plots_dir):
+def plot_figure_5(plots_dir, export_dir=None, export_r_cut=200.0):
     plots_dir.mkdir(exist_ok=True)
     v0_values = [-2, -1, 0, 0.1, 0.5, 1]
     # r_stars = list(np.linspace(0.0001, 0.0009, 10))
@@ -85,6 +85,10 @@ def plot_figure_5(plots_dir):
 
     axes_flat = axes.flatten()
 
+    if export_dir is not None:
+        export_dir = Path(export_dir)
+        export_dir.mkdir(exist_ok=True)
+
     for i, v0 in enumerate(v0_values):
         ax = axes_flat[i]
 
@@ -101,6 +105,8 @@ def plot_figure_5(plots_dir):
             ax.plot(theta_h, [R_horizon] * 200, color="brown", linewidth=2)
 
         # Geodesics
+        trajs = []
+        valid_r_stars = []
         for r_star in r_stars:
             if m_val > 0 and r_star <= np.sqrt(m_val):
                 continue
@@ -112,6 +118,31 @@ def plot_figure_5(plots_dir):
 
             ax.plot(x_t, R_plot, color=color, linewidth=1)
             ax.plot(-x_t, R_plot, color=color, linewidth=1)
+
+            if export_dir is not None:
+                # Truncate at r_cut and keep only (v, r, x) — derivatives not needed for plotting
+                r = np.array(traj[:, 1])
+                hit = int(np.argmax(r >= export_r_cut))
+                if not np.any(r >= export_r_cut):
+                    hit = len(r) - 1
+                trajs.append(np.array(traj[: hit + 1, :3]))  # (n_trunc, 3): v, r, x
+                valid_r_stars.append(r_star)
+
+        if export_dir is not None:
+            # trajs: ragged in length, so save as an object array
+            # Each entry shape (n_trunc, 3) — columns: (v, r, x)
+            export_path = export_dir / f"figure_5_geodesics_v0{v0:g}.npz"
+            trajs_arr = np.empty(len(trajs), dtype=object)
+            for k, t in enumerate(trajs):
+                trajs_arr[k] = t
+            np.savez_compressed(
+                export_path,
+                trajectories=trajs_arr,
+                r_stars=np.array(valid_r_stars),
+                v0=np.float64(v0),
+                r_cut=np.float64(export_r_cut),
+            )
+            print(f"Exported geodesic data to {export_path}")
 
         ax.set_title(r"$v_0$" + f"= {v0}", fontsize=12)
         ax.set_ylim(0, np.pi / 2 + 0.1)
@@ -252,7 +283,7 @@ def geodesics_and_lengths(v0_list, r_star_list, n_steps=100_000, dt=0.002, r_cut
 
 if __name__ == "__main__":
     plots_dir = Path("geodesics_plots")
-    # plot_figure_5(plots_dir)
+    plot_figure_5(plots_dir, export_dir=plots_dir / "figure_5_data")
 
     v0_list = [-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0]
     r_star_list = list(np.linspace(0.001, 20, 100))
