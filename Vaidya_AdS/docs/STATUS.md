@@ -4,7 +4,7 @@
 > **USAGE:** Update this file whenever a task is started, blocked, or finished.
 > **DO NOT:** Put long-form research notes here; use `docs/JOURNAL.md` for reasoning and `docs/SPECS.md` for formulas/specs.
 
-_Last updated: 2026-05-13_
+_Last updated: 2026-05-13_  (validation run added)
 
 ## 🟢 Current Focus
 Build a validated forward model for AdS$_3$-Vaidya entanglement data before attempting ML reconstruction.
@@ -32,17 +32,17 @@ from spacelike HRT geodesics in Vaidya-AdS. The first inverse-learning target sh
 ### High Priority
 - [ ] Replace the placeholder `docs/SPECS.md` with the actual project specification: goal, metric conventions, RT/HRT formulas, Vaidya mass profile, geodesic equations, regularization convention, and ML target.
 - [ ] Verify the Vaidya geodesic equations and turning-point initial conditions against the HRT/Vaidya literature before using generated data for ML.
-- [ ] Quantitatively validate the forward solver in known limits:
-  - [ ] pure AdS limit where applicable,
-  - [ ] late-time BTZ limit $m(v)\to1$,
-  - [ ] convergence under `dt`, `n_steps`, and `r_cut`,
-  - [ ] consistency of $\ell=2x(r_{\mathrm{cut}})$ and $L_{\mathrm{reg}}$.
+- [x] Quantitatively validate the forward solver in known limits:
+  - [x] pure AdS limit: `scripts/validate_known_limits.py`, max $|\Delta\ell|=4.5\times10^{-10}$, max $|\Delta L_{\mathrm{reg}}|=4.0\times10^{-3}$, $\kappa$-dev $<5\times10^{-12}$.
+  - [x] static BTZ limit ($m_i=m_f=1$): max $|\Delta\ell|=2.0\times10^{-4}$, $\kappa$-dev $<5\times10^{-12}$.
+  - [ ] convergence under `dt`, `n_steps`, and `r_cut` (systematic sweep not yet done),
+  - [~] consistency of $\ell=2x(r_{\mathrm{cut}})$ and $L_{\mathrm{reg}}$: $\ell$ uses interpolated cutoff (accurate); $L_{\mathrm{reg}}$ uses discrete cutoff in the length integrator (causes ~4e-3 error in empty AdS; tracked in JOURNAL.md).
 - [ ] Implement a robust forward-data generator that saves rows like `(turning_radius, turning_time, boundary_separation, boundary_time, regularized_length, solver_metadata)`.
 - [ ] Add a shooting or interpolation layer to convert the native solver output $(r_*,v_0)\mapsto(\ell,v_\infty,L_{\mathrm{reg}})$ into boundary-controlled data $(\ell,t)\mapsto L_{\mathrm{reg}}$.
 - [ ] Define the first ML inverse problem: recover a parametric $m(v)$, e.g. shell amplitude/thickness/center, from synthetic entanglement data.
 
 ### Medium Priority
-- [ ] Improve cutoff handling by interpolating to exactly `r_cut` instead of using the first index with `r >= r_cut`.
+- [ ] Fix `geodesic_length_from_traj` to use interpolated rather than discrete cutoff; current mismatch between interpolated $\ell$ and discretely-integrated $L_{\mathrm{reg}}$ causes ~4e-3 error (see JOURNAL.md).
 - [ ] Consider an event-based integrator or adaptive integration strategy for geodesics that miss the UV cutoff with fixed `n_steps`.
 - [ ] Reduce or isolate the Gauss-Legendre endpoint singularity error in the BTZ comparison; consider endpoint-aware quadrature or analytic benchmarks for validation.
 - [ ] Add tests for shape, monotonicity, spacelike norm positivity, cutoff hit status, and reproducible metadata in generated datasets.
@@ -56,6 +56,7 @@ from spacelike HRT geodesics in Vaidya-AdS. The first inverse-learning target sh
 - [ ] Package the paper summaries as permanent documentation under `docs/literature/`.
 
 ## ✅ Recently Completed
+- 2026-05-13: Ran automated validation (`scripts/validate_known_limits.py`) against both known limits (20 $r_\star$ samples each, $r_{\mathrm{cut}}=200$, $\Delta\lambda=0.002$, 40000 steps). Zero cutoff failures. Empty AdS: $|\Delta\ell|_{\max}=4.5\times10^{-10}$, $|\Delta L_{\mathrm{reg}}|_{\max}=4.0\times10^{-3}$. Static BTZ: $|\Delta\ell|_{\max}=2.0\times10^{-4}$. Spacelike norm deviation $<5\times10^{-12}$ (machine zero) in both cases. JSON report saved to `validation_reports/known_limits_validation.json`.
 - 2026-05-13: Added `src/Empty_AdS.py` with exact analytic geodesic solution for empty AdS$_3$ ($m=0$); verified against all three geodesic equations and the Poincaré–EF coordinate identity.
 - 2026-05-13: Migrated `BTZ.py` from PyTorch/torchquad to JAX/Equinox; fixed Vaidya mass profile to SPECS.md convention ($m_i=0$, vacuum-to-BTZ) and propagated mass parameters through `ds_dlambda` and all length functions.
 - 2026-05-13: Added concise Markdown summaries for the five core holographic-entanglement papers and an overall roadmap summary.
@@ -74,5 +75,5 @@ from spacelike HRT geodesics in Vaidya-AdS. The first inverse-learning target sh
 - Full metric reconstruction from single-interval entropy is likely underdetermined; begin with constrained $m(v)$ reconstruction.
 
 ## Next Session Recommendation
-Start by replacing `SPECS.md` with the actual physics specification, then run a small reproducible validation sweep comparing late-time Vaidya data against the BTZ analytic curve. Record residuals versus `dt`, `n_steps`, and `r_cut` before adding ML.
+Fix the `geodesic_length_from_traj` discrete-cutoff issue (interpolate length integral to exactly $r_{\mathrm{cut}}$), then run a convergence sweep varying `dt` and `n_steps` to confirm $\mathcal{O}(\Delta\lambda^4)$ scaling. After that, proceed to the forward-data generator.
 
