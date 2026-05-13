@@ -24,8 +24,8 @@ from spacelike HRT geodesics in Vaidya-AdS. The first inverse-learning target sh
   It computes trajectories from a symmetric turning point, proper lengths, regularized lengths, cutoff half-widths, boundary time readouts, and length profiles.
 - `geodesics_plots.py` is a Marimo exploration notebook for Vaidya geodesics, compactified geometry plots, length diagnostics, and apparent-horizon visualization.
 - `Vaidya_BTZ.py` compares Vaidya geodesics to the BTZ analytic limit. It checks $\ell(r_*)$, $L_{\mathrm{reg}}(r_*)$, and $L_{\mathrm{reg}}(\ell)$ against the late-time BTZ reference.
+- `Empty_AdS.py` provides exact closed-form HRT geodesics in empty AdS$_3$ ($m=0$ Vaidya limit): $r=r_\ast\cosh\lambda$, $x=\tanh\lambda/r_\ast$, $v=t_{\mathrm{bdy}}-1/r$. Serves as the early-time validation reference for the Vaidya solver.
 - `papers/` contains Markdown summaries of the five core papers and an overall roadmap summary.
-- `SPECS.md` is still a placeholder template and needs to be replaced with the actual physics and architecture specification.
 
 ## 🛠 Active TODO List
 
@@ -56,6 +56,8 @@ from spacelike HRT geodesics in Vaidya-AdS. The first inverse-learning target sh
 - [ ] Package the paper summaries as permanent documentation under `docs/literature/`.
 
 ## ✅ Recently Completed
+- 2026-05-13: Added `src/Empty_AdS.py` with exact analytic geodesic solution for empty AdS$_3$ ($m=0$); verified against all three geodesic equations and the Poincaré–EF coordinate identity.
+- 2026-05-13: Migrated `BTZ.py` from PyTorch/torchquad to JAX/Equinox; fixed Vaidya mass profile to SPECS.md convention ($m_i=0$, vacuum-to-BTZ) and propagated mass parameters through `ds_dlambda` and all length functions.
 - 2026-05-13: Added concise Markdown summaries for the five core holographic-entanglement papers and an overall roadmap summary.
 - 2026-05-13: Established the immediate project direction: validate BTZ/pure-AdS limits, generate Vaidya HRT data, then reconstruct a constrained mass profile before attempting general spacetime reconstruction.
 - (predates journal): Implemented static BTZ analytic/quadrature baseline in `BTZ.py`.
@@ -63,7 +65,6 @@ from spacelike HRT geodesics in Vaidya-AdS. The first inverse-learning target sh
 - (predates journal): Built Marimo notebooks for geodesic exploration and Vaidya-vs-BTZ comparison.
 
 ## ⚠️ Blockers / Issues
-- `SPECS.md` is still generic and must be replaced before major coding changes.
 - The native Vaidya solver is parameterized by turning-point data $(r_*,v_0)$, but ML training data should likely be parameterized by boundary observables $(\ell,t)$. This requires inversion/shooting/interpolation.
 - Current cutoff handling uses discrete trajectory samples; this can introduce systematic error in $\ell$, $v_\infty$, and $L_{\mathrm{reg}}$.
 - Fixed-step RK4 may miss `r_cut` for some geodesics unless `n_steps` is large enough.

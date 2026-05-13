@@ -186,6 +186,30 @@ when $m(v)>0$.
 
 Older code may use a different profile. Before using legacy data for ML, check whether the early-time mass becomes negative. If it does, record this clearly and do not treat that run as a physical vacuum-to-BTZ quench.
 
+### Early-Time Limit: Exact Geodesics in Empty AdS$_3$
+
+Setting $m=0$ gives exact Poincaré AdS$_3$. Static spacelike geodesics at boundary time $t_{\mathrm{bdy}}$ admit the exact closed-form solution
+
+$$
+r(\lambda) = r_\ast \cosh\lambda,
+\qquad
+x(\lambda) = \frac{\tanh\lambda}{r_\ast},
+\qquad
+v(\lambda) = t_{\mathrm{bdy}} - \frac{1}{r(\lambda)}.
+$$
+
+The $v$-relation follows exactly from the Poincaré–EF coordinate identity $v = t - 1/r$. The geodesic is unit-speed ($\kappa=1$) throughout, so the affine parameter at the UV cutoff and the resulting lengths are
+
+$$
+\lambda_{\mathrm{cut}} = \operatorname{arccosh}\!\left(\frac{r_{\mathrm{cut}}}{r_\ast}\right),
+\qquad
+L = 2\lambda_{\mathrm{cut}},
+\qquad
+L_{\mathrm{reg}} = 2\operatorname{arccosh}\!\left(\frac{r_{\mathrm{cut}}}{r_\ast}\right) - 2\log(2r_{\mathrm{cut}}).
+$$
+
+This solution is implemented in `src/Empty_AdS.py` and serves as the primary validation reference for the Vaidya solver in the early-time ($v \ll v_c$) limit.
+
 ---
 
 ## 5. HRT Geodesics
