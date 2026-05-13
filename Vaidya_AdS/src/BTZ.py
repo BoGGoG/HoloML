@@ -1,220 +1,221 @@
 """
-Data generation for BTZ black hole
+Data generation for BTZ black hole — JAX/Equinox version
 """
 
 import os
 import pickle
-import sys
 from pathlib import Path
 
+import equinox as eqx
+import jax
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-import torch
-import torch.nn as nn
-from torch import Tensor
-from torchquad import GaussLegendre, set_up_backend
-from functools import partial
+
+jax.config.update("jax_enable_x64", True)
 
 
-# Use this to enable GPU support and set the floating point precision
-set_up_backend("torch", data_type="float64")
-torch.set_default_dtype(torch.float64)
-# torch.set_default_device("cuda:0")
-torch.set_default_device("cuda:0")
+# ── Analytic functions ─────────────────────────────────────────────────────────
 
 
-def f_true(z: Tensor):
+def f_true(z: jax.Array) -> jax.Array:
     """(4.27) in paper"""
-    return 1.0 - torch.pow(z, 2)
+    return 1.0 - z**2
 
 
-def h_true(z: Tensor):
-    """just 1 for all z"""
-    return torch.ones(size=z.shape, device=z.device)
+def h_true(z: jax.Array) -> jax.Array:
+    return jnp.ones_like(z)
 
 
-def SData(c: float, beta: float, v: float, l: Tensor) -> Tensor:
-    """
-    (4.33) in https://arxiv.org/abs/2406.07395
-    """
-    pi = torch.tensor(3.141592653589793, device=l.device, dtype=l.dtype)
-    return (c / 3.0) * torch.log(torch.sinh(np.pi * l / (beta * v))) + torch.log(
-        beta * v / pi
+def SData(c: float, beta: float, v: float, l: jax.Array) -> jax.Array:
+    """(4.33) in https://arxiv.org/abs/2406.07395"""
+    return (c / 3.0) * jnp.log(jnp.sinh(jnp.pi * l / (beta * v))) + jnp.log(
+        beta * v / jnp.pi
     )
 
 
-def l_func(zstar: Tensor) -> Tensor:
+def l_func(zstar: jax.Array) -> jax.Array:
+    """(4.28) in https://arxiv.org/abs/2406.07395"""
+    return 2 * jnp.arctanh(zstar)
+
+
+def h_func(z: jax.Array) -> jax.Array:
+    return jnp.ones_like(z)
+
+
+def get_thermal_entropy(h, zh: jax.Array) -> jax.Array:
+    """s = 4π√h(z_h) / z_h  (with c = 3L/2G_N absorbed)"""
+    return 4 * jnp.pi * jnp.sqrt(h(zh)) / zh
+
+
+def get_event_horizon() -> jax.Array:
+    return jnp.array(1.0)
+
+
+# ── Data generation ────────────────────────────────────────────────────────────
+
+
+def generate_BTZ_data(cvbeta: np.ndarray, Nzstar: int = 1000) -> dict:
     """
-    (4.28) in https://arxiv.org/abs/2406.07395
+    cvbeta: array of (c, beta, v) rows.
+    Returns a dict keyed by (c, beta, v).
     """
-    return 2 * torch.arctanh(zstar)
-
-
-def h_func(zstar: Tensor) -> Tensor:
-    return torch.tensor(1.0)
-
-
-def get_thermal_entropy(h, zh: Tensor) -> Tensor:
-    """s = L^2 h(z) / (4 G_N z^2) at z=zh (horizon)
-    Here we set the constant c = 3L/2G_N, so s = 4 pi sqrt(h(z_h)) / z_h
-    Make sure to provide the NN for h here and not the true h, otherwise it's kind of circular/cheating.
-    """
-    out = 4 * np.pi * torch.sqrt(h(zh)) / zh
-    return out
-
-
-def get_event_horizon() -> Tensor:
-    """Returns the event horizon z_h = 1"""
-    return torch.tensor(1.0)
-
-
-def generate_BTZ_data(cvbeta: np.ndarray, Nzstar: int = 1000):
-    """
-    cvbeta: array of arrays (c, beta, v) for which to generate data
-    """
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # device = torch.device("cpu")
     eps = 1e-3
-    data = dict()
-    print("Generating data...")
-
-    zstar_arr = torch.linspace(eps, 1 - eps, Nzstar)
-    zstar_arr = zstar_arr.to(device)
+    zstar_arr = jnp.linspace(eps, 1 - eps, Nzstar)
     l_arr = l_func(zstar_arr)
 
-    data = dict()
+    print("Generating data...")
+    data = {}
     for cvb in cvbeta:
         S_arr = SData(c=cvb[0], beta=cvb[1], v=cvb[2], l=l_arr)
-        z_h = get_event_horizon()  # 1
-        thermal_entropy = get_thermal_entropy(h_func, z_h)
+        s_thermal = get_thermal_entropy(h_func, get_event_horizon())
         data[(cvb[0], cvb[1], cvb[2])] = {
-            "zstar": zstar_arr.cpu().numpy(),
-            "l": l_arr.cpu().numpy(),
-            "SFinite": S_arr.cpu().numpy(),
-            "s_thermal": thermal_entropy.cpu().numpy(),
+            "zstar": np.array(zstar_arr),
+            "l": np.array(l_arr),
+            "SFinite": np.array(S_arr),
+            "s_thermal": np.array(s_thermal),
         }
     return data
 
 
-class BTZ_NN(nn.Module):
-    def __init__(self, input_dim, output_dim, hidden_layers, a: float = 0.0):
-        super(BTZ_NN, self).__init__()
+# ── Neural network ─────────────────────────────────────────────────────────────
 
-        # Combine input layer, hidden layers, and output layer into one list
+
+class BTZ_NN(eqx.Module):
+    """
+    Two-headed network predicting f(z) and h(z).
+
+    Call signature: model(x) where x has shape (input_dim,).
+    Returns (f, h), each of shape (output_dim,).
+
+    f is constrained to vanish at z = 1 by construction.
+    """
+
+    layers_f: list
+    layers_h: list
+    a: jax.Array
+
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int,
+        hidden_layers: list,
+        a: float = 0.0,
+        *,
+        key: jax.Array,
+    ):
         layer_dims = [input_dim] + hidden_layers + [output_dim]
+        key1, key2 = jax.random.split(key)
 
-        # Create fully connected layers
-        layers_f = []
-        for i in range(len(layer_dims) - 1):
-            layers_f.append(nn.Linear(layer_dims[i], layer_dims[i + 1]))
-            # Add ReLU activation after each hidden layer, but not after the output layer
-            if i < len(layer_dims) - 2:
-                layers_f.append(nn.ReLU())
-        self.network_f = nn.Sequential(*layers_f)
+        def make_layers(k):
+            keys = jax.random.split(k, len(layer_dims) - 1)
+            return [
+                eqx.nn.Linear(in_d, out_d, key=ki)
+                for ki, in_d, out_d in zip(keys, layer_dims[:-1], layer_dims[1:])
+            ]
 
-        layers_h = []
-        for i in range(len(layer_dims) - 1):
-            layers_h.append(nn.Linear(layer_dims[i], layer_dims[i + 1]))
-            # Add ReLU activation after each hidden layer, but not after the output layer
-            if i < len(layer_dims) - 2:
-                layers_h.append(nn.ReLU())
-        self.network_h = nn.Sequential(*layers_h)
+        self.layers_f = make_layers(key1)
+        self.layers_h = make_layers(key2)
+        self.a = jnp.array(a)
 
-        self.a = nn.Parameter(torch.tensor(a))
+    def _apply(self, layers: list, x: jax.Array) -> jax.Array:
+        for i, layer in enumerate(layers):
+            x = layer(x)
+            if i < len(layers) - 1:
+                x = jax.nn.relu(x)
+        return x
 
-    def forward(self, x):
-        """
-        f always has a zero at x=1
-        """
-        f_out = (1 - x) * (1 + (self.a + 1) * x - torch.pow(x, 2) * self.network_f(x))
-        h_out = 1 + self.a * x - torch.pow(x, 2) * self.network_h(x)
-        # h_out = 1 - self.network_h(x)
+    def __call__(self, x: jax.Array):
+        """x: shape (input_dim,)  →  (f, h) each of shape (output_dim,)"""
+        f_net = self._apply(self.layers_f, x)
+        h_net = self._apply(self.layers_h, x)
+        f_out = (1 - x) * (1 + (self.a + 1) * x - x**2 * f_net)
+        h_out = 1 + self.a * x - x**2 * h_net
         return f_out, h_out
 
 
-def _h(model, z):
-    """watch out, needs model to be defined"""
-    if len(z.shape) == 0:
-        z = torch.unsqueeze(z, 0)
-    f_out, h_out = model(z)
-    return h_out
+# ── Model evaluation helpers ───────────────────────────────────────────────────
 
 
-def _f(model, z):
-    """watch out, needs model to be defined.
-    This _f always has a zero at z=1, because this is how it is defined in model.
-    For more complicated f, this will not be the case.
-    """
-    if len(z.shape) == 0:
-        z = torch.unsqueeze(z, 0)
-    f_out, h_out = model(z)
-    return f_out
+def _h(model: BTZ_NN, z: jax.Array) -> jax.Array:
+    """Evaluate h(z).  z: scalar or shape (N,).  Returns shape (N,)."""
+    z = jnp.atleast_1d(jnp.asarray(z))
+    _, h = jax.vmap(lambda zi: model(zi[None]))(z)
+    return h[:, 0]
 
 
-def SFiniteIntegrant(z, model, zstar) -> torch.Tensor:
-    """Different for BTZ because 1D
-    (4.25) instead of (2.5) here for BTZ
-    """
-    integrand = torch.sqrt(
-        1
-        / (
-            (1 - torch.pow(z, 2) * _h(model, zstar) / (zstar**2 * _h(model, z)))
-            * _f(model, z)
-        )
-    )
-    # integrand = torch.clamp(integrand, max=1e8)  # avoid numerical issues
-    integrand = torch.clamp((integrand - 1) / z, max=1e8)  # avoid numerical issues
-    return integrand
+def _f(model: BTZ_NN, z: jax.Array) -> jax.Array:
+    """Evaluate f(z).  z: scalar or shape (N,).  Returns shape (N,)."""
+    z = jnp.atleast_1d(jnp.asarray(z))
+    f, _ = jax.vmap(lambda zi: model(zi[None]))(z)
+    return f[:, 0]
 
 
-def S_integral_NN(model, zstar: Tensor, N_GL: int = 12) -> Tensor:
-    """Different for BTZ because 1D"""
-    eps = 1e-8  # need to avoid singularity at z=0
-    integrator = GaussLegendre()
-
-    out = []
-    for zstar_i in zstar:
-        integration_domain = torch.tensor([[0, zstar_i - eps]])
-        func = partial(SFiniteIntegrant, model=model, zstar=zstar_i)
-        result = integrator.integrate(
-            func, integration_domain=integration_domain, N=N_GL, dim=1
-        )
-        # result = result - 1.0 / zstar_i
-        # the factor 0.5 is added by me. No idea where it would come from
-        result = 0.5 * result + torch.log(
-            zstar_i
-        )  # add log(zstar) to get finite entropy ((4.25) instead of (2.5) here for BTZ)
-        # result = result + torch.log(
-        #     zstar_i
-        # )  # add log(zstar) to get finite entropy ((4.25) instead of (2.5) here for BTZ)
-        out.append(result)
-    return torch.stack(out)
+# ── Gauss-Legendre quadrature ──────────────────────────────────────────────────
 
 
-def lIntegrand_NN(alpha: Tensor, zstar: Tensor, model) -> Tensor:
-    """Different for BTZ because 1D
-    (4.26) instead here for BTZ
-    """
-    out = 1.0 / torch.sqrt(
-        _h(model, alpha)
-        * _f(model, alpha)
-        * (_h(model, alpha) * zstar**2 / _h(model, zstar) / torch.pow(alpha, 2) - 1)
-    )
-    return torch.clamp(out, max=1e8)
+def _gl_nodes_weights(n: int):
+    """GL nodes and weights on [-1, 1], computed once with numpy."""
+    xi, wi = np.polynomial.legendre.leggauss(n)
+    return jnp.array(xi), jnp.array(wi)
 
 
-def l_integral_NN(model, zstar: Tensor, N_GL: int = 12) -> Tensor:
-    eps = 1e-8
-    integrator = GaussLegendre()
-    out = []
-    for zstar_i in zstar:
-        integration_domain = torch.tensor([[0, zstar_i - eps]])
-        func = partial(lIntegrand_NN, model=model, zstar=zstar_i)
-        result = 2 * integrator.integrate(
-            func, integration_domain=integration_domain, N=N_GL, dim=1
-        )
-        out.append(result)
-    return torch.stack(out)
+# ── Integrands (scalar z, scalar zstar) ───────────────────────────────────────
+
+
+def SFiniteIntegrant(z, model: BTZ_NN, zstar) -> jax.Array:
+    """BTZ version of (4.25).  z, zstar: scalars."""
+    f_z, h_z = model(z[None])
+    _, h_zstar = model(zstar[None])
+    f_z, h_z, h_zstar = f_z[0], h_z[0], h_zstar[0]
+
+    integrand = jnp.sqrt(1.0 / ((1 - z**2 * h_zstar / (zstar**2 * h_z)) * f_z))
+    return jnp.minimum((integrand - 1) / z, 1e8)
+
+
+def lIntegrand_NN(alpha, zstar, model: BTZ_NN) -> jax.Array:
+    """BTZ version of (4.26).  alpha, zstar: scalars."""
+    f_a, h_a = model(alpha[None])
+    _, h_zstar = model(zstar[None])
+    f_a, h_a, h_zstar = f_a[0], h_a[0], h_zstar[0]
+
+    out = 1.0 / jnp.sqrt(h_a * f_a * (h_a * zstar**2 / h_zstar / alpha**2 - 1))
+    return jnp.minimum(out, 1e8)
+
+
+# ── Integrals ──────────────────────────────────────────────────────────────────
+
+
+def S_integral_NN(model: BTZ_NN, zstar: jax.Array, N_GL: int = 12) -> jax.Array:
+    """Returns S_finite for every element of zstar (shape (N,))."""
+    xi, wi = _gl_nodes_weights(N_GL)
+
+    def integrate_one(zstar_i):
+        eps = 1e-8
+        a, b = 0.0, zstar_i - eps
+        t = 0.5 * (b - a) * xi + 0.5 * (a + b)
+        vals = jax.vmap(lambda z: SFiniteIntegrant(z, model, zstar_i))(t)
+        result = 0.5 * (b - a) * jnp.sum(wi * vals)
+        return 0.5 * result + jnp.log(zstar_i)
+
+    return jax.vmap(integrate_one)(zstar)
+
+
+def l_integral_NN(model: BTZ_NN, zstar: jax.Array, N_GL: int = 12) -> jax.Array:
+    """Returns l for every element of zstar (shape (N,))."""
+    xi, wi = _gl_nodes_weights(N_GL)
+
+    def integrate_one(zstar_i):
+        eps = 1e-8
+        a, b = 0.0, zstar_i - eps
+        t = 0.5 * (b - a) * xi + 0.5 * (a + b)
+        vals = jax.vmap(lambda alpha: lIntegrand_NN(alpha, zstar_i, model))(t)
+        return 2 * 0.5 * (b - a) * jnp.sum(wi * vals)
+
+    return jax.vmap(integrate_one)(zstar)
+
+
+# ── Main ───────────────────────────────────────────────────────────────────────
 
 
 if __name__ == "__main__":
@@ -226,16 +227,16 @@ if __name__ == "__main__":
     S = data[(cvbeta[0, 0], cvbeta[0, 1], cvbeta[0, 2])]["SFinite"]
     print(f"{l[0:10]=} {S[0:10]=}")
 
-    dir = Path("data")
-    path = dir / "data_BTZ.pkl"
-    os.makedirs(dir, exist_ok=True)
-
+    data_dir = Path("data")
+    path = data_dir / "data_BTZ.pkl"
+    os.makedirs(data_dir, exist_ok=True)
     pickle.dump(data, open(path, "wb"))
     print(f"Data saved to {path}")
 
-    # plotting
     fig, ax = plt.subplots(figsize=(8, 6))
-    plt.plot(l, S, label=f"c={cvbeta[0, 0]}, beta={cvbeta[0, 1]}, v={cvbeta[0, 2]}")
+    plt.plot(
+        l, S, label=f"c={cvbeta[0, 0]:.3g}, beta={cvbeta[0, 1]}, v={cvbeta[0, 2]:.3g}"
+    )
     plt.xlabel("l")
     plt.ylabel("S")
     plt.title("BTZ Black Hole Entropy")
