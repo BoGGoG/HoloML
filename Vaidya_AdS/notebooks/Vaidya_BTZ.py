@@ -177,6 +177,116 @@ def _(R_STARS, empty_ads_geodesic_exact, np, r_cut_inp):
 @app.cell
 def _(mo):
     mo.md(r"""
+    ## Direct solver validation: Vaidya RK4 at $m=0$ vs exact empty AdS
+
+    Set $m_f = 0$ so the Vaidya mass profile is identically zero everywhere.
+    The RK4 integrator then solves the geodesic equations in pure Poincaré AdS$_3$,
+    and the result must match the closed-form solution from `Empty_AdS.py` exactly
+    up to numerical integration error.  Any residual here is pure RK4 truncation error
+    — it is independent of the mass profile and sets a floor on forward-model accuracy.
+    """)
+    return
+
+
+@app.cell
+def _(
+    L_reg_empty,
+    R_STARS,
+    dt_inp,
+    l_empty,
+    lengths_vs_rstar,
+    n_steps_slider,
+    np,
+    r_cut_inp,
+):
+    _r_cut = float(r_cut_inp.value)
+    _Ls_m0, _Lregs_m0, _hs_m0, _vins_m0 = lengths_vs_rstar(
+        R_STARS, 0.0,
+        n_steps=int(n_steps_slider.value),
+        dt=float(dt_inp.value),
+        r_cut=_r_cut,
+        m_i=0.0, m_f=0.0,
+    )
+    l_vaidya_m0 = 2.0 * np.array(_hs_m0)
+    L_reg_vaidya_m0 = np.array(_Lregs_m0)
+    dl_m0 = np.abs(l_vaidya_m0 - l_empty)
+    dL_m0 = np.abs(L_reg_vaidya_m0 - L_reg_empty)
+    return L_reg_vaidya_m0, dL_m0, dl_m0, l_vaidya_m0
+
+
+@app.cell
+def _(
+    L_reg_empty,
+    L_reg_vaidya_m0,
+    R_STARS,
+    dL_m0,
+    dl_m0,
+    go,
+    l_empty,
+    l_vaidya_m0,
+    mo,
+):
+    _fig_m0 = go.Figure()
+    _fig_m0.add_trace(go.Scatter(
+        x=R_STARS, y=l_empty,
+        mode="lines", line=dict(color="teal", dash="dot", width=2.5),
+        name="Exact empty AdS",
+    ))
+    _fig_m0.add_trace(go.Scatter(
+        x=R_STARS, y=l_vaidya_m0,
+        mode="markers", marker=dict(color="darkorange", size=7, symbol="circle-open"),
+        name="Vaidya RK4  (m=0)",
+    ))
+    _fig_m0.add_trace(go.Scatter(
+        x=R_STARS, y=dl_m0,
+        mode="lines+markers", marker=dict(size=4),
+        line=dict(color="gray", dash="dot"),
+        name="|Δℓ|",
+        yaxis="y2",
+    ))
+    _fig_m0.update_layout(
+        title="ℓ(r★): Vaidya RK4 (m=0) vs exact empty AdS",
+        xaxis_title="r★",
+        yaxis_title="ℓ",
+        yaxis2=dict(title="|Δℓ|", overlaying="y", side="right", showgrid=False, type="log"),
+        legend_title="",
+        width=750, height=420,
+    )
+
+    _fig_Lm0 = go.Figure()
+    _fig_Lm0.add_trace(go.Scatter(
+        x=R_STARS, y=L_reg_empty,
+        mode="lines", line=dict(color="teal", dash="dot", width=2.5),
+        name="Exact empty AdS",
+    ))
+    _fig_Lm0.add_trace(go.Scatter(
+        x=R_STARS, y=L_reg_vaidya_m0,
+        mode="markers", marker=dict(color="darkorange", size=7, symbol="circle-open"),
+        name="Vaidya RK4  (m=0)",
+    ))
+    _fig_Lm0.add_trace(go.Scatter(
+        x=R_STARS, y=dL_m0,
+        mode="lines+markers", marker=dict(size=4),
+        line=dict(color="gray", dash="dot"),
+        name="|ΔL_reg|",
+        yaxis="y2",
+    ))
+    _fig_Lm0.update_layout(
+        title="L_reg(r★): Vaidya RK4 (m=0) vs exact empty AdS",
+        xaxis_title="r★",
+        yaxis_title="L_reg",
+        yaxis2=dict(title="|ΔL_reg|", overlaying="y", side="right", showgrid=False, type="log"),
+        legend_title="",
+        width=750, height=420,
+    )
+
+    mo.vstack([mo.ui.plotly(_fig_m0), mo.ui.plotly(_fig_Lm0)])
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
     ## Internal check: BTZ analytic formula vs GL quadrature
 
     Both compute the same quantity $\ell = \int_0^{z_\star} \frac{d\alpha}{\sqrt{f(\alpha)(z_\star^2/\alpha^2 - 1)}}$.

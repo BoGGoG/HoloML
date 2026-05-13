@@ -23,7 +23,7 @@ from spacelike HRT geodesics in Vaidya-AdS. The first inverse-learning target sh
   $$ds^2=-f(r,v)dv^2+2dvdr+r^2dx^2,\qquad f(r,v)=r^2-m(v).$$
   It computes trajectories from a symmetric turning point, proper lengths, regularized lengths, cutoff half-widths, boundary time readouts, and length profiles.
 - `geodesics_plots.py` is a Marimo exploration notebook for Vaidya geodesics, compactified geometry plots, length diagnostics, and apparent-horizon visualization.
-- `Vaidya_BTZ.py` compares Vaidya geodesics to the BTZ analytic limit. It checks $\ell(r_*)$, $L_{\mathrm{reg}}(r_*)$, and $L_{\mathrm{reg}}(\ell)$ against the late-time BTZ reference.
+- `Vaidya_BTZ.py` compares Vaidya geodesics against both limits: late-time BTZ ($m\to1$) and early-time empty AdS ($m=0$). Plots $\ell(r_*)$, $L_{\mathrm{reg}}(r_*)$, $L_{\mathrm{reg}}(\ell)$, and convergence residuals toward each reference.
 - `Empty_AdS.py` provides exact closed-form HRT geodesics in empty AdS$_3$ ($m=0$ Vaidya limit): $r=r_\ast\cosh\lambda$, $x=\tanh\lambda/r_\ast$, $v=t_{\mathrm{bdy}}-1/r$. Serves as the early-time validation reference for the Vaidya solver.
 - `papers/` contains Markdown summaries of the five core papers and an overall roadmap summary.
 
