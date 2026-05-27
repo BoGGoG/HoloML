@@ -4,7 +4,7 @@
 > **USAGE:** Update this file whenever a task is started, blocked, or finished.
 > **DO NOT:** Put long-form research notes here; use `docs/JOURNAL.md` for reasoning and `docs/SPECS.md` for formulas/specs.
 
-_Last updated: 2026-05-13_  (validation run added)
+_Last updated: 2026-05-13_  (Level 1 turning-grid fit added)
 
 ## 🟢 Current Focus
 Build a validated forward model for AdS$_3$-Vaidya entanglement data before attempting ML reconstruction.
@@ -39,6 +39,8 @@ from spacelike HRT geodesics in Vaidya-AdS. The first inverse-learning target sh
   - [~] consistency of $\ell=2x(r_{\mathrm{cut}})$ and $L_{\mathrm{reg}}$: $\ell$ uses interpolated cutoff (accurate); $L_{\mathrm{reg}}$ uses discrete cutoff in the length integrator (causes ~4e-3 error in empty AdS; tracked in JOURNAL.md).
 - [ ] Implement a robust forward-data generator that saves rows like `(turning_radius, turning_time, boundary_separation, boundary_time, regularized_length, solver_metadata)`.
 - [ ] Add a shooting or interpolation layer to convert the native solver output $(r_*,v_0)\mapsto(\ell,v_\infty,L_{\mathrm{reg}})$ into boundary-controlled data $(\ell,t)\mapsto L_{\mathrm{reg}}$.
+- [x] **Level 1 turning-grid sanity check**: fit $(v_c, v_s)$ from turning-point data $(r_\star, v_\star) \mapsto L_{\mathrm{reg}}$ — see `scripts/fit_parametric_vaidya_turning_grid.py`. Recovered $v_c=-3.37\times10^{-4}$ (true=0), $v_s=0.4998$ (true=0.5), final MSE loss $=3.95\times10^{-28}$, 72/72 samples accepted, 110 Nelder-Mead evaluations, ~152s runtime. (This is a bulk-label check only; see JOURNAL.md.)
+- [ ] **Level 1 boundary-only inverse problem**: replace turning-point labels with boundary observables $(\ell, t_{\mathrm{bdy}}) \mapsto L_{\mathrm{reg}}$ — requires shooting/interpolation layer to convert $(r_\star, v_\star) \to (\ell, t_{\mathrm{bdy}})$.
 - [ ] Define the first ML inverse problem: recover a parametric $m(v)$, e.g. shell amplitude/thickness/center, from synthetic entanglement data.
 
 ### Medium Priority
@@ -56,6 +58,7 @@ from spacelike HRT geodesics in Vaidya-AdS. The first inverse-learning target sh
 - [ ] Package the paper summaries as permanent documentation under `docs/literature/`.
 
 ## ✅ Recently Completed
+- 2026-05-13: Implemented Level 1 turning-grid parametric fit (`scripts/fit_parametric_vaidya_turning_grid.py`). Generated 72 geodesics from true $(v_c=0, v_s=0.5)$; Nelder-Mead recovered $v_c=-3.4\times10^{-4}$, $v_s=0.4998$, loss $=3.95\times10^{-28}$ (machine zero). Outputs saved to `inverse_results/`. This is a bulk-label sanity check; real boundary-only inversion requires a shooting layer.
 - 2026-05-13: Ran automated validation (`scripts/validate_known_limits.py`) against both known limits (20 $r_\star$ samples each, $r_{\mathrm{cut}}=200$, $\Delta\lambda=0.002$, 40000 steps). Zero cutoff failures. Empty AdS: $|\Delta\ell|_{\max}=4.5\times10^{-10}$, $|\Delta L_{\mathrm{reg}}|_{\max}=4.0\times10^{-3}$. Static BTZ: $|\Delta\ell|_{\max}=2.0\times10^{-4}$. Spacelike norm deviation $<5\times10^{-12}$ (machine zero) in both cases. JSON report saved to `validation_reports/known_limits_validation.json`.
 - 2026-05-13: Added `src/Empty_AdS.py` with exact analytic geodesic solution for empty AdS$_3$ ($m=0$); verified against all three geodesic equations and the Poincaré–EF coordinate identity.
 - 2026-05-13: Migrated `BTZ.py` from PyTorch/torchquad to JAX/Equinox; fixed Vaidya mass profile to SPECS.md convention ($m_i=0$, vacuum-to-BTZ) and propagated mass parameters through `ds_dlambda` and all length functions.
@@ -75,5 +78,5 @@ from spacelike HRT geodesics in Vaidya-AdS. The first inverse-learning target sh
 - Full metric reconstruction from single-interval entropy is likely underdetermined; begin with constrained $m(v)$ reconstruction.
 
 ## Next Session Recommendation
-Fix the `geodesic_length_from_traj` discrete-cutoff issue (interpolate length integral to exactly $r_{\mathrm{cut}}$), then run a convergence sweep varying `dt` and `n_steps` to confirm $\mathcal{O}(\Delta\lambda^4)$ scaling. After that, proceed to the forward-data generator.
+Fix the `geodesic_length_from_traj` discrete-cutoff issue (interpolate length integral to exactly $r_{\mathrm{cut}}$), then run a convergence sweep varying `dt` and `n_steps` to confirm $\mathcal{O}(\Delta\lambda^4)$ scaling. After that, implement the shooting/interpolation layer to enable boundary-only inversion $(r_\star, v_\star) \to (\ell, t_{\mathrm{bdy}})$, then re-run the Level 1 fit with boundary observables only.
 

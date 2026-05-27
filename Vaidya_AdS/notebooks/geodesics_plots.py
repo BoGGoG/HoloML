@@ -1,13 +1,13 @@
 import marimo
 
-__generated_with = "0.23.2"
+__generated_with = "0.23.3"
 app = marimo.App(width="full")
 
 
 @app.cell
 def _():
     import marimo as mo
-    import sys
+    import sys, os
     from pathlib import Path
     import numpy as np
     import matplotlib as mpl
@@ -15,14 +15,15 @@ def _():
     from matplotlib.cm import ScalarMappable
     from matplotlib.colors import Normalize
 
-    return Normalize, Path, ScalarMappable, mo, mpl, np, plt, sys
+    return Normalize, Path, ScalarMappable, mo, np, os, plt, sys
 
 
 @app.cell
-def _(Path, sys):
+def _(Path, os, sys):
     _nb_dir = Path(__file__).resolve().parent
     sys.path.insert(0, str(_nb_dir.parent / "src"))
 
+    os.environ["JAX_PLATFORMS"] = "cpu"
     import jax
     jax.config.update("jax_enable_x64", True)
 
@@ -35,6 +36,7 @@ def _(Path, sys):
         length_profile_vs_x,
     )
 
+    print(jax.default_backend())
     return (
         geodesic_length_from_traj,
         get_mass_and_dmdv,
@@ -44,28 +46,28 @@ def _(Path, sys):
 
 
 @app.cell
-def _(mpl, plt):
-    plt.style.use(["science", "grid"])
-    mpl.rcParams.update(
-        {
-            "font.family": "sans-serif",
-            "mathtext.fontset": "cm",
-            "font.size": 12,
-            "axes.labelsize": 14,
-            "axes.titlesize": 14,
-            "axes.linewidth": 1.5,
-            "xtick.labelsize": 11,
-            "ytick.labelsize": 11,
-            "xtick.direction": "in",
-            "ytick.direction": "in",
-            "xtick.top": True,
-            "ytick.right": True,
-            "legend.fontsize": 11,
-            "legend.frameon": False,
-            "lines.linewidth": 2.0,
-            "lines.markersize": 4,
-        }
-    )
+def _():
+    # plt.style.use(["science", "grid"])
+    # mpl.rcParams.update(
+    #     {
+    #         "font.family": "sans-serif",
+    #         "mathtext.fontset": "cm",
+    #         "font.size": 12,
+    #         "axes.labelsize": 14,
+    #         "axes.titlesize": 14,
+    #         "axes.linewidth": 1.5,
+    #         "xtick.labelsize": 11,
+    #         "ytick.labelsize": 11,
+    #         "xtick.direction": "in",
+    #         "ytick.direction": "in",
+    #         "xtick.top": True,
+    #         "ytick.right": True,
+    #         "legend.fontsize": 11,
+    #         "legend.frameon": False,
+    #         "lines.linewidth": 2.0,
+    #         "lines.markersize": 4,
+    #     }
+    # )
     return
 
 
@@ -587,6 +589,16 @@ def _(R_STARS, get_mass_and_dmdv, np, r_cut_3d, trajs, v0_3d):
         ),
     )
     _fig3d
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _():
     return
 
 
