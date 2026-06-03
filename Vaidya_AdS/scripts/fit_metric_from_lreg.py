@@ -165,6 +165,21 @@ def forward(params, r_stars, v0, dt=DT, r_cut=R_CUT):
     return h_arr, L_arr
 
 
+class GeodesicLoss:
+    """MSE loss comparing predicted L(h) against the target curve.
+
+    Builds an interpolant of (h_data, L_data) once at construction.
+    Each call evaluates it at h_pred and returns the MSE against L_pred.
+    h_data must be sorted ascending.
+    """
+
+    def __init__(self, h_data, L_data):
+        self._L_target = lambda h: np.interp(h, h_data, L_data)
+
+    def __call__(self, h_pred, L_pred):
+        return float(np.mean((L_pred - self._L_target(h_pred)) ** 2))
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -193,6 +208,8 @@ if __name__ == "__main__":
     print("Predicted h: ", np.round(h_pred, 4))
     print("Target L:    ", np.round(L_data, 4))
     print("Predicted L: ", np.round(L_pred, 4))
+    loss = GeodesicLoss(h_data, L_data)
+    print("Initial loss:", loss(h_pred, L_pred))
 
     fig, ax = plt.subplots()
     ax.plot(h_data, L_data, "o-", label="Target")
