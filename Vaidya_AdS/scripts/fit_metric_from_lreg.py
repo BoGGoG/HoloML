@@ -141,15 +141,19 @@ def integrate_param(r_star, v0, params, n_steps=N_STEPS, dt=DT):
     return traj  # (n_steps, 6): v, r, x, dv, dr, dx
 
 
-def length_and_h_from_traj(traj, params, dt=DT, r_cut=R_CUT):
-    r = traj[:, 1]
-    hit = next((k for k in range(len(r)) if r[k] >= r_cut), len(r) - 1)
-    seg = traj[: hit + 1]
-    vs, rs, _, dv, dr, dx = seg.T
+def length_and_h_from_traj(traj, params, dt=DT, r_cut=R_CUT, delta=1.0):
+    vs, rs, xs, dv, dr, dx = traj.T
     f = jax.vmap(lambda vi, ri: f_metric(ri, vi, params))(vs, rs)
     sdot = jnp.sqrt(jnp.maximum(-f * dv**2 + 2 * dv * dr + rs**2 * dx**2, 0.0))
-    L = float(2.0 * dt * jnp.sum(sdot))
-    h = float(2.0 * seg[-1, 2])
+
+    # Smooth cutoff: ~1 before r_cut, ~0 after, transition width delta
+    mask = jax.nn.sigmoid(-(rs - r_cut) / delta)
+    L = 2.0 * dt * jnp.sum(sdot * mask)
+
+    # h: x at r=r_cut, approximated as mask-difference-weighted average of x
+    weight = mask[:-1] - mask[1:]  # smooth bump peaked at the crossing
+    h = 2.0 * jnp.dot(xs[:-1], weight) / jnp.sum(weight)
+
     return L, h
 
 
@@ -160,8 +164,8 @@ def forward(params, r_stars, v0, dt=DT, r_cut=R_CUT):
         )
         for r in r_stars
     ]
-    L_arr = np.array([res[0] for res in results])
-    h_arr = np.array([res[1] for res in results])
+    h_arr = jnp.stack([res[1] for res in results])
+    L_arr = jnp.stack([res[0] for res in results])
     return h_arr, L_arr
 
 
@@ -174,10 +178,12 @@ class GeodesicLoss:
     """
 
     def __init__(self, h_data, L_data):
-        self._L_target = lambda h: np.interp(h, h_data, L_data)
+        self._h_data = jnp.array(h_data)
+        self._L_data = jnp.array(L_data)
 
     def __call__(self, h_pred, L_pred):
-        return float(np.mean((L_pred - self._L_target(h_pred)) ** 2))
+        L_target = jnp.interp(h_pred, self._h_data, self._L_data)
+        return jnp.mean((L_pred - L_target) ** 2)
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -210,6 +216,13 @@ if __name__ == "__main__":
     print("Predicted L: ", np.round(L_pred, 4))
     loss = GeodesicLoss(h_data, L_data)
     print("Initial loss:", loss(h_pred, L_pred))
+
+    def scalar_loss(params):
+        h_p, L_p = forward(params, r_data, v0, dt=dt, r_cut=r_cut)
+        return loss(h_p, L_p)
+
+    grads = jax.grad(scalar_loss)(params_init)
+    print("Gradients:", grads)
 
     fig, ax = plt.subplots()
     ax.plot(h_data, L_data, "o-", label="Target")
