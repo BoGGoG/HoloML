@@ -119,8 +119,10 @@ _df_dv = jax.grad(f_metric, argnums=1)
 def _rhs(state, params):
     v, r, x, dv, dr, dx = state
     f = f_metric(r, v, params)
-    ddv = r * (dx**2 - dv**2)
-    ddr = f * ddv + _df_dr(r, v, params) * dr * dv - 0.5 * _df_dv(r, v, params) * dv**2
+    df_dr = _df_dr(r, v, params)
+    df_dv = _df_dv(r, v, params)
+    ddv = r * dx**2 - 0.5 * df_dr * dv**2
+    ddr = f * ddv + df_dr * dr * dv + 0.5 * df_dv * dv**2
     ddx = -2.0 / r * dr * dx
     return jnp.array([dv, dr, dx, ddv, ddr, ddx])
 
@@ -163,7 +165,9 @@ def length_and_h_from_traj(traj, params, r_cut=R_CUT, delta=1.0):
 @jax.jit
 def forward(params, r_stars, v0):
     traj_batch = _integrate_batch(r_stars, v0, params)  # (n_r, N_STEPS, 6)
-    L_arr, h_arr = jax.vmap(lambda traj: length_and_h_from_traj(traj, params))(traj_batch)
+    L_arr, h_arr = jax.vmap(lambda traj: length_and_h_from_traj(traj, params))(
+        traj_batch
+    )
     return h_arr, L_arr
 
 
@@ -227,7 +231,7 @@ if __name__ == "__main__":
     # ── Gradient descent ───────────────────────────────────────────────────────
 
     LR = 0.1
-    N_GD_STEPS = 5
+    N_GD_STEPS = 50
 
     params = params_init
     print(f"\n{'step':>4}  {'loss':>12}  {'m_f':>8}  {'v_c':>8}  {'v_s':>8}")
