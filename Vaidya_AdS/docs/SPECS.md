@@ -285,28 +285,22 @@ $$
 
 ### Geodesic Equations Used by the Solver
 
-For
-
-$$
-f(r,v)=r^2-m(v),
-$$
-
-the current first-order solver implements
+Derived from the Euler-Lagrange equations for $\mathcal{L} = g_{\mu\nu}\dot x^\mu \dot x^\nu$, the general geodesic equations for the metric $ds^2 = -f\,dv^2+2\,dv\,dr+r^2dx^2$ with arbitrary differentiable $f(r,v)$ are
 
 $$
 \ddot v
 =
-r\left(\dot x^2-\dot v^2\right),
+r\dot x^2 - \frac{1}{2}\frac{\partial f}{\partial r}\dot v^2,
 $$
 
 $$
 \ddot r
 =
-f(r,v)\ddot v
+f\,\ddot v
 +
-2r\dot r\dot v
--
-\frac{1}{2}m'(v)\dot v^2,
+\frac{\partial f}{\partial r}\dot r\dot v
++
+\frac{1}{2}\frac{\partial f}{\partial v}\dot v^2,
 $$
 
 $$
@@ -315,7 +309,15 @@ $$
 -\frac{2}{r}\dot r\dot x.
 $$
 
-These equations must be validated against the Christoffel-symbol derivation and against known limits before generated data is used for ML.
+For the specific profile $f = r^2 - m(v)$, substituting $\partial f/\partial r = 2r$ and $\partial f/\partial v = -m'(v)$ recovers:
+
+$$
+\ddot v = r(\dot x^2 - \dot v^2),
+\qquad
+\ddot r = f\,\ddot v + 2r\dot r\dot v - \tfrac{1}{2}m'(v)\dot v^2.
+$$
+
+The general form is implemented in `scripts/fit_metric_from_lreg.py` via `jax.grad` applied to an arbitrary `f_metric(r, v, params)`. The hardcoded equations above are used in `src/Vaidya_AdS.py` for data generation.
 
 ---
 

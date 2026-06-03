@@ -4,7 +4,7 @@
 > **USAGE:** Update this file whenever a task is started, blocked, or finished.
 > **DO NOT:** Put long-form research notes here; use `docs/JOURNAL.md` for reasoning and `docs/SPECS.md` for formulas/specs.
 
-_Last updated: 2026-05-13_  (Level 1 turning-grid fit added)
+_Last updated: 2026-06-03_  (Differentiable parametric metric fitting pipeline added)
 
 ## 🟢 Current Focus
 Build a validated forward model for AdS$_3$-Vaidya entanglement data before attempting ML reconstruction.
@@ -58,6 +58,8 @@ from spacelike HRT geodesics in Vaidya-AdS. The first inverse-learning target sh
 - [ ] Package the paper summaries as permanent documentation under `docs/literature/`.
 
 ## ✅ Recently Completed
+- 2026-06-03: Built `scripts/fit_metric_from_lreg.py` — a fully differentiable parametric metric fitting pipeline. Generates geodesic data at a fixed probe time $v_0$ with true parameters, exports to JSON, then fits $f(r,v;\theta)$ end-to-end using `jax.grad`. Forward model uses general geodesic equations (via `jax.grad` on `f_metric`), batched RK4 with `jax.vmap` + `@jax.jit`, and a soft sigmoid cutoff for differentiable $L$ and $h$ extraction. Loss is MSE between predicted $L$ and interpolated target $L(h)$, optimised with optax (SGD or Adam).
+- 2026-06-03: Found and fixed three bugs in `scripts/fit_metric_from_lreg.py`: (1) wrong sign on the $\partial_v f$ term in $\ddot r$, (2) hardcoded $f_r=2r$ in $\ddot v$ instead of using `jax.grad`, (3) `h_\mathrm{data}` was stored in descending order but passed directly to `jnp.interp` which requires ascending order — this caused completely wrong loss and gradient values. See JOURNAL.md for details.
 - 2026-05-13: Implemented Level 1 turning-grid parametric fit (`scripts/fit_parametric_vaidya_turning_grid.py`). Generated 72 geodesics from true $(v_c=0, v_s=0.5)$; Nelder-Mead recovered $v_c=-3.4\times10^{-4}$, $v_s=0.4998$, loss $=3.95\times10^{-28}$ (machine zero). Outputs saved to `inverse_results/`. This is a bulk-label sanity check; real boundary-only inversion requires a shooting layer.
 - 2026-05-13: Ran automated validation (`scripts/validate_known_limits.py`) against both known limits (20 $r_\star$ samples each, $r_{\mathrm{cut}}=200$, $\Delta\lambda=0.002$, 40000 steps). Zero cutoff failures. Empty AdS: $|\Delta\ell|_{\max}=4.5\times10^{-10}$, $|\Delta L_{\mathrm{reg}}|_{\max}=4.0\times10^{-3}$. Static BTZ: $|\Delta\ell|_{\max}=2.0\times10^{-4}$. Spacelike norm deviation $<5\times10^{-12}$ (machine zero) in both cases. JSON report saved to `validation_reports/known_limits_validation.json`.
 - 2026-05-13: Added `src/Empty_AdS.py` with exact analytic geodesic solution for empty AdS$_3$ ($m=0$); verified against all three geodesic equations and the Poincaré–EF coordinate identity.
@@ -78,5 +80,5 @@ from spacelike HRT geodesics in Vaidya-AdS. The first inverse-learning target sh
 - Full metric reconstruction from single-interval entropy is likely underdetermined; begin with constrained $m(v)$ reconstruction.
 
 ## Next Session Recommendation
-Fix the `geodesic_length_from_traj` discrete-cutoff issue (interpolate length integral to exactly $r_{\mathrm{cut}}$), then run a convergence sweep varying `dt` and `n_steps` to confirm $\mathcal{O}(\Delta\lambda^4)$ scaling. After that, implement the shooting/interpolation layer to enable boundary-only inversion $(r_\star, v_\star) \to (\ell, t_{\mathrm{bdy}})$, then re-run the Level 1 fit with boundary observables only.
+Verify that `scripts/fit_metric_from_lreg.py` converges to the true parameters $(m_f=1, v_c=0, v_s=0.5)$ with the current sigmoid cutoff ($\delta=1$). If the residual loss at the true parameters is non-negligible, reduce $\delta$ (e.g. to $0.1$) to tighten the soft cutoff and reduce systematic bias vs the hard-cutoff training data. Once convergence is confirmed, replace `f_metric` with an Equinox neural network to move toward unconstrained metric reconstruction.
 
