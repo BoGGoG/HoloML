@@ -221,7 +221,11 @@ if __name__ == "__main__":
         h_p, L_p = forward(params, r_data, v0, dt=dt, r_cut=r_cut)
         return loss(h_p, L_p)
 
-    grads = jax.grad(scalar_loss)(params_init)
+    grad_fn = jax.jit(jax.grad(scalar_loss))
+    print("Warming up grad_fn (JIT compilation)...")
+    _ = grad_fn(params_init)
+    print("Done. Running timed gradient call...")
+    grads = grad_fn(params_init)
     print("Gradients:", grads)
 
     fig, ax = plt.subplots()
