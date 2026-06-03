@@ -125,30 +125,33 @@ def _rhs(state, params):
     return jnp.array([dv, dr, dx, ddv, ddr, ddx])
 
 
-@partial(jax.jit, static_argnums=(3, 4))
-def integrate_param(r_star, v0, params, n_steps=N_STEPS, dt=DT):
+def _integrate_single(r_star, v0, params):
+    """Integrate one geodesic. N_STEPS and DT captured from module scope."""
     s0 = jnp.array([v0, r_star, 0.0, 0.0, 0.0, 1.0 / r_star])
 
     def step(s, _):
         k1 = _rhs(s, params)
-        k2 = _rhs(s + 0.5 * dt * k1, params)
-        k3 = _rhs(s + 0.5 * dt * k2, params)
-        k4 = _rhs(s + dt * k3, params)
-        s2 = s + (dt / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
+        k2 = _rhs(s + 0.5 * DT * k1, params)
+        k3 = _rhs(s + 0.5 * DT * k2, params)
+        k4 = _rhs(s + DT * k3, params)
+        s2 = s + (DT / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
         return s2, s2
 
-    _, traj = jax.lax.scan(step, s0, None, length=n_steps)
-    return traj  # (n_steps, 6): v, r, x, dv, dr, dx
+    _, traj = jax.lax.scan(step, s0, None, length=N_STEPS)
+    return traj  # (N_STEPS, 6): v, r, x, dv, dr, dx
 
 
-def length_and_h_from_traj(traj, params, dt=DT, r_cut=R_CUT, delta=1.0):
+_integrate_batch = jax.vmap(_integrate_single, in_axes=(0, None, None))
+
+
+def length_and_h_from_traj(traj, params, r_cut=R_CUT, delta=1.0):
     vs, rs, xs, dv, dr, dx = traj.T
     f = jax.vmap(lambda vi, ri: f_metric(ri, vi, params))(vs, rs)
     sdot = jnp.sqrt(jnp.maximum(-f * dv**2 + 2 * dv * dr + rs**2 * dx**2, 0.0))
 
     # Smooth cutoff: ~1 before r_cut, ~0 after, transition width delta
     mask = jax.nn.sigmoid(-(rs - r_cut) / delta)
-    L = 2.0 * dt * jnp.sum(sdot * mask)
+    L = 2.0 * DT * jnp.sum(sdot * mask)
 
     # h: x at r=r_cut, approximated as mask-difference-weighted average of x
     weight = mask[:-1] - mask[1:]  # smooth bump peaked at the crossing
@@ -157,15 +160,10 @@ def length_and_h_from_traj(traj, params, dt=DT, r_cut=R_CUT, delta=1.0):
     return L, h
 
 
-def forward(params, r_stars, v0, dt=DT, r_cut=R_CUT):
-    results = [
-        length_and_h_from_traj(
-            integrate_param(r, v0, params), params, dt=dt, r_cut=r_cut
-        )
-        for r in r_stars
-    ]
-    h_arr = jnp.stack([res[1] for res in results])
-    L_arr = jnp.stack([res[0] for res in results])
+@jax.jit
+def forward(params, r_stars, v0):
+    traj_batch = _integrate_batch(r_stars, v0, params)  # (n_r, N_STEPS, 6)
+    L_arr, h_arr = jax.vmap(lambda traj: length_and_h_from_traj(traj, params))(traj_batch)
     return h_arr, L_arr
 
 
@@ -209,7 +207,7 @@ if __name__ == "__main__":
     print("True parameters:   ", {"m_f": m_f, "v_c": v_c, "v_s": v_s})
     print("Initial parameters:", params_init)
 
-    h_pred, L_pred = forward(params_init, r_data, v0, dt=dt, r_cut=r_cut)
+    h_pred, L_pred = forward(params_init, r_data, v0)
     print("Target h:    ", np.round(h_data, 4))
     print("Predicted h: ", np.round(h_pred, 4))
     print("Target L:    ", np.round(L_data, 4))
@@ -218,7 +216,7 @@ if __name__ == "__main__":
     print("Initial loss:", loss(h_pred, L_pred))
 
     def scalar_loss(params):
-        h_p, L_p = forward(params, r_data, v0, dt=dt, r_cut=r_cut)
+        h_p, L_p = forward(params, r_data, v0)
         return loss(h_p, L_p)
 
     grad_fn = jax.jit(jax.grad(scalar_loss))
@@ -250,7 +248,7 @@ if __name__ == "__main__":
 
     # ── Plot: initial vs final prediction ─────────────────────────────────────
 
-    h_final, L_final = forward(params, r_data, v0, dt=dt, r_cut=r_cut)
+    h_final, L_final = forward(params, r_data, v0)
 
     fig, ax = plt.subplots()
     ax.plot(h_data, L_data, "o-", label="Target")
