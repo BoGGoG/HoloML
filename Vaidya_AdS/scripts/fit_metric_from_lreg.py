@@ -1,4 +1,5 @@
 import os, sys, json
+from functools import partial
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,13 +12,9 @@ import jax
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
-from Vaidya_AdS import (
-    integrate_geodesic,
-    geodesic_length_from_traj,
-    geodesic_length_reg,
-)
+from Vaidya_AdS import integrate_geodesic, geodesic_length_from_traj
 
-# ── Parameters ─────────────────────────────────────────────────────────────────
+# ── Constants ──────────────────────────────────────────────────────────────────
 
 V0 = 0.0
 M_I, M_F = 0.0, 1.0
@@ -28,112 +25,89 @@ N_STEPS = 20000
 DT = 0.002
 
 OUT_DIR = Path(__file__).resolve().parent.parent / "data"
-OUT_DIR.mkdir(exist_ok=True)
 
-# ── 1. Data generation ─────────────────────────────────────────────────────────
+# ── Data I/O ───────────────────────────────────────────────────────────────────
 
-r_out, L_out = [], []
-for r_star in R_STARS:
-    traj = np.array(
-        integrate_geodesic(
-            float(r_star),
-            V0,
-            n_steps=N_STEPS,
-            dt=DT,
-            m_i=M_I,
-            m_f=M_F,
-            v_c=V_C,
-            v_s=V_S,
+
+def generate_data(r_stars, v0, m_i, m_f, v_c, v_s, r_cut, n_steps, dt):
+    r_out, h_out, L_out = [], [], []
+    for r_star in r_stars:
+        traj = np.array(
+            integrate_geodesic(
+                float(r_star),
+                v0,
+                n_steps=n_steps,
+                dt=dt,
+                m_i=m_i,
+                m_f=m_f,
+                v_c=v_c,
+                v_s=v_s,
+            )
         )
-    )
-    hit = next((k for k in range(1, len(traj)) if traj[k, 1] >= R_CUT), None)
-    if hit is None:
-        print(f"skipping r_star={r_star:.2f}: did not reach r_cut")
-        continue
-    L = float(
-        geodesic_length_from_traj(
-            traj, DT, r_cut=R_CUT, m_i=M_I, m_f=M_F, v_c=V_C, v_s=V_S
+        hit = next((k for k in range(1, len(traj)) if traj[k, 1] >= r_cut), None)
+        if hit is None:
+            print(f"skipping r_star={r_star:.2f}: did not reach r_cut")
+            continue
+        L = float(
+            geodesic_length_from_traj(
+                traj, dt, r_cut=r_cut, m_i=m_i, m_f=m_f, v_c=v_c, v_s=v_s
+            )
         )
+        r_out.append(float(r_star))
+        h_out.append(float(2.0 * traj[hit, 2]))
+        L_out.append(L)
+    return np.array(r_out), np.array(h_out), np.array(L_out)
+
+
+def save_data(path, v0, m_i, m_f, v_c, v_s, r_cut, n_steps, dt, r_data, h_data, L_data):
+    with open(path, "w") as f:
+        json.dump(
+            {
+                "v0": v0,
+                "m_i": m_i,
+                "m_f": m_f,
+                "v_c": v_c,
+                "v_s": v_s,
+                "r_cut": r_cut,
+                "n_steps": n_steps,
+                "dt": dt,
+                "r_star": r_data.tolist(),
+                "h": h_data.tolist(),
+                "L": L_data.tolist(),
+            },
+            f,
+            indent=2,
+        )
+
+
+def load_data(path):
+    with open(path) as f:
+        d = json.load(f)
+    return (
+        d["v0"],
+        d["m_i"],
+        d["m_f"],
+        d["v_c"],
+        d["v_s"],
+        d["r_cut"],
+        d["n_steps"],
+        d["dt"],
+        np.array(d["r_star"]),
+        np.array(d["h"]),
+        np.array(d["L"]),
     )
-    r_out.append(float(r_star))
-    # L_out.append(float(geodesic_length_reg(L, R_CUT)))
-    L_out.append(L)
-
-r_data = np.array(r_out)
-L_data = np.array(L_out)
-print(f"Generated {len(r_data)} geodesics")
-
-# ── 2. Export ──────────────────────────────────────────────────────────────────
-
-out_path = OUT_DIR / "l_vs_rstar.json"
-with open(out_path, "w") as f:
-    json.dump(
-        {
-            "v0": V0,
-            "m_i": M_I,
-            "m_f": M_F,
-            "v_c": V_C,
-            "v_s": V_S,
-            "r_cut": R_CUT,
-            "n_steps": N_STEPS,
-            "dt": DT,
-            "r_star": r_out,
-            "L": L_out,
-        },
-        f,
-        indent=2,
-    )
-print(f"Saved to {out_path}")
-
-# ── 3. Plot ────────────────────────────────────────────────────────────────────
-
-# fig, ax = plt.subplots()
-# ax.plot(r_data, L_data, "o-")
-# ax.set_xlabel(r"$r_\star$")
-# ax.set_ylabel(r"$L$")
-# ax.set_title(rf"$v_0={V0},\; m_i={M_I},\; m_f={M_F},\; v_c={V_C},\; v_s={V_S}$")
-# plt.tight_layout()
-# plt.savefig(OUT_DIR / "l_vs_rstar.png", dpi=150)
-# plt.show()
 
 
-# -- 4. Read in data again (let's do it like this to later not have to figure out how to do it)
-V0, M_I, M_F, V_C, V_S, R_CUT, N_STEPS, DT = (
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-)
-with open(out_path, "r") as f:
-    data = json.load(f)
-    V0 = data["v0"]
-    M_I = data["m_i"]
-    M_F = data["m_f"]
-    V_C = data["v_c"]
-    V_S = data["v_s"]
-    R_CUT = data["r_cut"]
-    N_STEPS = data["n_steps"]
-    DT = data["dt"]
-
-
-# -- 5. Forward model: Geodesic integration with a parameterized metric
+# ── Forward model ──────────────────────────────────────────────────────────────
 #
 # Metric: ds² = -f(r,v; params) dv² + 2 dv dr + r² dx²
 #
-# integrate_geodesic in Vaidya_AdS.py has the same RK4/lax.scan loop,
-# but its RHS hard-codes f = r²-m(v) with analytic derivatives df/dr=2r,
-# df/dv=-dm/dv.  Here we keep the identical loop and replace only the RHS,
-# using jax.grad to get the metric derivatives for any f.
-
-from functools import partial
+# integrate_geodesic hard-codes f = r²-m(v) with analytic derivatives.
+# Here we use jax.grad to get metric derivatives for any differentiable f.
 
 
 def f_metric(r, v, params):
-    """f(r,v) in the metric.  Replace the body with a neural network later."""
+    """f(r,v) in the metric. Replace the body with a neural network later."""
     m = 0.5 * params["m_f"] * (1.0 + jnp.tanh((v - params["v_c"]) / params["v_s"]))
     return r**2 - m
 
@@ -164,40 +138,69 @@ def integrate_param(r_star, v0, params, n_steps=N_STEPS, dt=DT):
         return s2, s2
 
     _, traj = jax.lax.scan(step, s0, None, length=n_steps)
-    return traj  # (n_steps, 6)  columns: v, r, x, dv, dr, dx
+    return traj  # (n_steps, 6): v, r, x, dv, dr, dx
 
 
-def length_from_traj(traj, params, dt=DT, r_cut=R_CUT):
+def length_and_h_from_traj(traj, params, dt=DT, r_cut=R_CUT):
     r = traj[:, 1]
     hit = next((k for k in range(len(r)) if r[k] >= r_cut), len(r) - 1)
     seg = traj[: hit + 1]
     vs, rs, _, dv, dr, dx = seg.T
     f = jax.vmap(lambda vi, ri: f_metric(ri, vi, params))(vs, rs)
     sdot = jnp.sqrt(jnp.maximum(-f * dv**2 + 2 * dv * dr + rs**2 * dx**2, 0.0))
-    return float(2.0 * dt * jnp.sum(sdot))
+    L = float(2.0 * dt * jnp.sum(sdot))
+    h = float(2.0 * seg[-1, 2])
+    return L, h
 
 
-def forward(params, r_stars):
-    return np.array(
-        [length_from_traj(integrate_param(r, V0, params), params) for r in r_stars]
+def forward(params, r_stars, v0, dt=DT, r_cut=R_CUT):
+    results = [
+        length_and_h_from_traj(
+            integrate_param(r, v0, params), params, dt=dt, r_cut=r_cut
+        )
+        for r in r_stars
+    ]
+    L_arr = np.array([res[0] for res in results])
+    h_arr = np.array([res[1] for res in results])
+    return h_arr, L_arr
+
+
+# ── Main ───────────────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    OUT_DIR.mkdir(exist_ok=True)
+    out_path = OUT_DIR / "l_vs_rstar.json"
+
+    r_data, h_data, L_data = generate_data(
+        R_STARS, V0, M_I, M_F, V_C, V_S, R_CUT, N_STEPS, DT
+    )
+    print(f"Generated {len(r_data)} geodesics")
+    save_data(
+        out_path, V0, M_I, M_F, V_C, V_S, R_CUT, N_STEPS, DT, r_data, h_data, L_data
+    )
+    print(f"Saved to {out_path}")
+
+    v0, m_i, m_f, v_c, v_s, r_cut, n_steps, dt, r_data, h_data, L_data = load_data(
+        out_path
     )
 
+    params_init = {"m_f": jnp.array(0.2), "v_c": jnp.array(-0.5), "v_s": jnp.array(0.6)}
+    print("True parameters:   ", {"m_f": m_f, "v_c": v_c, "v_s": v_s})
+    print("Initial parameters:", params_init)
 
-params_init = {"m_f": jnp.array(0.2), "v_c": jnp.array(-0.5), "v_s": jnp.array(0.6)}
-print("True parameters:   ", {"m_f": M_F, "v_c": V_C, "v_s": V_S})
-print("Initial parameters:", params_init)
-L_pred = forward(params_init, r_data)
-print("Target:    ", np.round(L_data, 4))
-print("Predicted: ", np.round(L_pred, 4))
+    h_pred, L_pred = forward(params_init, r_data, v0, dt=dt, r_cut=r_cut)
+    print("Target h:    ", np.round(h_data, 4))
+    print("Predicted h: ", np.round(h_pred, 4))
+    print("Target L:    ", np.round(L_data, 4))
+    print("Predicted L: ", np.round(L_pred, 4))
 
-# plot goal vs initial prediction
-fig, ax = plt.subplots()
-plt.plot(r_data, L_data, "o-", label="Target")
-plt.plot(r_data, L_pred, "o-", label="Initial guess")
-plt.xlabel(r"$r_\star$")
-plt.ylabel(r"$L$")
-plt.title("True vs initial predicted geodesic lengths")
-plt.legend()
-plt.tight_layout()
-plt.savefig(OUT_DIR / "l_vs_rstar_initial_guess.png", dpi=150)
-plt.show()
+    fig, ax = plt.subplots()
+    ax.plot(h_data, L_data, "o-", label="Target")
+    ax.plot(h_pred, L_pred, "o-", label="Initial guess")
+    ax.set_xlabel(r"$h$")
+    ax.set_ylabel(r"$L$")
+    ax.set_title("True vs initial predicted geodesic lengths")
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(OUT_DIR / "l_vs_h_initial_guess.png", dpi=150)
+    plt.show()
