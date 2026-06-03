@@ -180,11 +180,12 @@ class GeodesicLoss:
     """
 
     def __init__(self, h_data, L_data):
-        self._h_data = jnp.array(h_data)
-        self._L_data = jnp.array(L_data)
+        order = jnp.argsort(jnp.array(h_data))
+        self._h_data = jnp.array(h_data)[order]
+        self._L_data = jnp.array(L_data)[order]
 
     def __call__(self, h_pred, L_pred):
-        L_target = jnp.interp(h_pred, self._h_data, self._L_data)
+        L_target = jnp.interp(jax.lax.stop_gradient(h_pred), self._h_data, self._L_data)
         return jnp.mean((L_pred - L_target) ** 2)
 
 
@@ -207,7 +208,7 @@ if __name__ == "__main__":
         out_path
     )
 
-    params_init = {"m_f": jnp.array(0.8), "v_c": jnp.array(0.1), "v_s": jnp.array(0.6)}
+    params_init = {"m_f": jnp.array(0.4), "v_c": jnp.array(-0.5), "v_s": jnp.array(0.8)}
     print("True parameters:   ", {"m_f": m_f, "v_c": v_c, "v_s": v_s})
     print("Initial parameters:", params_init)
 
@@ -230,8 +231,8 @@ if __name__ == "__main__":
 
     # ── Gradient descent ───────────────────────────────────────────────────────
 
-    LR = 0.1
-    N_GD_STEPS = 50
+    LR = 3.1
+    N_GD_STEPS = 20
 
     params = params_init
     print(f"\n{'step':>4}  {'loss':>12}  {'m_f':>8}  {'v_c':>8}  {'v_s':>8}")
