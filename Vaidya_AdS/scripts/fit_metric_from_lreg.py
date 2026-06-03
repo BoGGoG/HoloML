@@ -205,7 +205,7 @@ if __name__ == "__main__":
         out_path
     )
 
-    params_init = {"m_f": jnp.array(0.2), "v_c": jnp.array(-0.5), "v_s": jnp.array(0.6)}
+    params_init = {"m_f": jnp.array(0.8), "v_c": jnp.array(0.1), "v_s": jnp.array(0.6)}
     print("True parameters:   ", {"m_f": m_f, "v_c": v_c, "v_s": v_s})
     print("Initial parameters:", params_init)
 
@@ -224,17 +224,44 @@ if __name__ == "__main__":
     grad_fn = jax.jit(jax.grad(scalar_loss))
     print("Warming up grad_fn (JIT compilation)...")
     _ = grad_fn(params_init)
-    print("Done. Running timed gradient call...")
-    grads = grad_fn(params_init)
-    print("Gradients:", grads)
+    print("Done.")
+
+    # ── Gradient descent ───────────────────────────────────────────────────────
+
+    LR = 0.1
+    N_GD_STEPS = 5
+
+    params = params_init
+    print(f"\n{'step':>4}  {'loss':>12}  {'m_f':>8}  {'v_c':>8}  {'v_s':>8}")
+    print(f"{'true':>4}  {'-':>12}  {m_f:>8.4f}  {v_c:>8.4f}  {v_s:>8.4f}")
+    print("-" * 50)
+    for step in range(N_GD_STEPS):
+        loss_val = float(scalar_loss(params))
+        grads = grad_fn(params)
+        print(
+            f"{step:>4}  {loss_val:>12.6f}"
+            f"  {float(params['m_f']):>8.4f}"
+            f"  {float(params['v_c']):>8.4f}"
+            f"  {float(params['v_s']):>8.4f}"
+        )
+        params = {k: params[k] - LR * grads[k] for k in params}
+
+    print(f"\nTrue parameters: m_f={m_f:.4f}, v_c={v_c:.4f}, v_s={v_s:.4f}")
+
+    # ── Plot: initial vs final prediction ─────────────────────────────────────
+
+    h_final, L_final = forward(params, r_data, v0, dt=dt, r_cut=r_cut)
 
     fig, ax = plt.subplots()
     ax.plot(h_data, L_data, "o-", label="Target")
-    ax.plot(h_pred, L_pred, "o-", label="Initial guess")
+    ax.plot(np.array(h_pred), np.array(L_pred), "o--", label="Initial guess")
+    ax.plot(
+        np.array(h_final), np.array(L_final), "o--", label=f"After {N_GD_STEPS} steps"
+    )
     ax.set_xlabel(r"$h$")
     ax.set_ylabel(r"$L$")
-    ax.set_title("True vs initial predicted geodesic lengths")
+    ax.set_title("Gradient descent progress")
     ax.legend()
     plt.tight_layout()
-    plt.savefig(OUT_DIR / "l_vs_h_initial_guess.png", dpi=150)
+    plt.savefig(OUT_DIR / "l_vs_h_gd.png", dpi=150)
     plt.show()
