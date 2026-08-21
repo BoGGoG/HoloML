@@ -4,7 +4,7 @@
 > **USAGE:** Update this file whenever a task is started, blocked, or finished.
 > **DO NOT:** Put long-form research notes here; use `docs/JOURNAL.md` for reasoning and `docs/SPECS.md` for formulas/specs.
 
-_Last updated: 2026-08-21_  (First convergence test of parametric pipeline)
+_Last updated: 2026-08-21_  (Slice 01 closed: NN mass profile in fitting pipeline)
 
 ## 🟢 Current Focus
 Build a validated forward model for AdS$_3$-Vaidya entanglement data before attempting ML reconstruction.
@@ -58,6 +58,7 @@ from spacelike HRT geodesics in Vaidya-AdS. The first inverse-learning target sh
 - [ ] Package the paper summaries as permanent documentation under `docs/literature/`.
 
 ## ✅ Recently Completed
+- 2026-08-21: **Slice 01 closed.** Replaced parametric $m(v)$ with Equinox MLP (`MassProfile`: 2×32 tanh, softplus output) in `scripts/fit_metric_from_lreg.py`. `jax.grad` differentiates through the NN for geodesic equations; `jax.checkpoint` on the RK4 scan step bounds memory. After 2000 pre-training steps + 100 geodesic training steps (Adam, lr=1e-3), the NN recovers the tanh mass profile: $m(0)\approx0.49$ (true 0.5), $m(5)\approx1.03$ (true 1.0). Integration step size changed to `DT=0.01, N_STEPS=5000` for practical CPU runtime. See `docs/slices/slice_01_nn_mass_profile.md`.
 - 2026-08-21: First convergence test of `scripts/fit_metric_from_lreg.py` with optax SGD (LR=3.0, 20 steps). Pipeline is structurally functional: loss decreases monotonically ($1.48\times10^{-3} \to 2.77\times10^{-4}$), $m_f$ recovers to 0.996 (true=1.0), $v_c$ moves from 0.3 to 0.131 (true=0.0), but $v_s$ barely moves (0.8→0.77, true=0.5). Gradient scale disparity is the likely bottleneck; Adam or per-parameter LR should help. `stop_gradient` on $h_\mathrm{pred}$ was removed; effect TBD. See JOURNAL.md for full analysis.
 - 2026-06-03: Built `scripts/fit_metric_from_lreg.py` — a fully differentiable parametric metric fitting pipeline. Generates geodesic data at a fixed probe time $v_0$ with true parameters, exports to JSON, then fits $f(r,v;\theta)$ end-to-end using `jax.grad`. Forward model uses general geodesic equations (via `jax.grad` on `f_metric`), batched RK4 with `jax.vmap` + `@jax.jit`, and a soft sigmoid cutoff for differentiable $L$ and $h$ extraction. Loss is MSE between predicted $L$ and interpolated target $L(h)$, optimised with optax (SGD or Adam).
 - 2026-06-03: Found and fixed three bugs in `scripts/fit_metric_from_lreg.py`: (1) wrong sign on the $\partial_v f$ term in $\ddot r$, (2) hardcoded $f_r=2r$ in $\ddot v$ instead of using `jax.grad`, (3) `h_\mathrm{data}` was stored in descending order but passed directly to `jnp.interp` which requires ascending order — this caused completely wrong loss and gradient values. See JOURNAL.md for details.
@@ -81,10 +82,9 @@ from spacelike HRT geodesics in Vaidya-AdS. The first inverse-learning target sh
 - Full metric reconstruction from single-interval entropy is likely underdetermined; begin with constrained $m(v)$ reconstruction.
 
 ## Next Session Recommendation
-The parametric pipeline converges but slowly, especially for $v_s$ (shell thickness). Immediate next steps:
-1. Switch from SGD to Adam to handle per-parameter gradient scale disparity — $m_f$ has much larger gradients than $v_s$.
-2. Run for more steps (200–500) to check whether the optimizer reaches the true parameters or stalls.
-3. Re-enable `stop_gradient` on $h_\mathrm{pred}$ and compare convergence — the confounding gradient path may be slowing $v_s$.
-4. Reduce $\delta$ (e.g. to $0.1$) if the loss floor at true parameters is too high.
-5. Once the parametric fit reliably converges, replace `f_metric` with an Equinox neural network for unconstrained metric reconstruction.
+The NN mass profile pipeline (slice 01) works. The geodesic loss is near its floor after pre-training, so the geodesic-based training provides only mild refinement. Next steps to increase the inverse-problem difficulty:
+1. Test with a *wrong* initial profile (pre-train on a different $v_s$ or $v_c$) to stress-test whether geodesic gradients can steer the NN from a mismatched initialization.
+2. Use multiple probe times $v_0$ to give the geodesics sensitivity to different parts of $m(v)$.
+3. Build the shooting/interpolation layer to convert from turning-point data $(r_\star, v_\star)$ to boundary-controlled data $(\ell, t) \mapsto L_\mathrm{reg}$.
+4. Reduce $\delta$ (soft cutoff) if the loss floor is too high.
 
