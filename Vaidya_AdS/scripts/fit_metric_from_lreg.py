@@ -3,6 +3,7 @@ from functools import partial
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
+import optax
 
 os.environ["JAX_PLATFORMS"] = "cpu"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -185,7 +186,8 @@ class GeodesicLoss:
         self._L_data = jnp.array(L_data)[order]
 
     def __call__(self, h_pred, L_pred):
-        L_target = jnp.interp(jax.lax.stop_gradient(h_pred), self._h_data, self._L_data)
+        # L_target = jnp.interp(jax.lax.stop_gradient(h_pred), self._h_data, self._L_data)
+        L_target = jnp.interp(h_pred, self._h_data, self._L_data)
         return jnp.mean((L_pred - L_target) ** 2)
 
 
@@ -208,7 +210,7 @@ if __name__ == "__main__":
         out_path
     )
 
-    params_init = {"m_f": jnp.array(0.4), "v_c": jnp.array(-0.5), "v_s": jnp.array(0.8)}
+    params_init = {"m_f": jnp.array(0.8), "v_c": jnp.array(0.3), "v_s": jnp.array(0.8)}
     print("True parameters:   ", {"m_f": m_f, "v_c": v_c, "v_s": v_s})
     print("Initial parameters:", params_init)
 
@@ -229,12 +231,16 @@ if __name__ == "__main__":
     _ = grad_fn(params_init)
     print("Done.")
 
-    # ── Gradient descent ───────────────────────────────────────────────────────
+    # ── Optimisation ──────────────────────────────────────────────────────────
 
-    LR = 3.1
+    LR = 3e-0
     N_GD_STEPS = 20
 
+    optimizer = optax.sgd(LR)  # vanilla gradient descent
+    # optimizer = optax.adam(LR)       # Adam
     params = params_init
+    opt_state = optimizer.init(params)
+
     print(f"\n{'step':>4}  {'loss':>12}  {'m_f':>8}  {'v_c':>8}  {'v_s':>8}")
     print(f"{'true':>4}  {'-':>12}  {m_f:>8.4f}  {v_c:>8.4f}  {v_s:>8.4f}")
     print("-" * 50)
@@ -247,7 +253,8 @@ if __name__ == "__main__":
             f"  {float(params['v_c']):>8.4f}"
             f"  {float(params['v_s']):>8.4f}"
         )
-        params = {k: params[k] - LR * grads[k] for k in params}
+        updates, opt_state = optimizer.update(grads, opt_state)
+        params = optax.apply_updates(params, updates)
 
     print(f"\nTrue parameters: m_f={m_f:.4f}, v_c={v_c:.4f}, v_s={v_s:.4f}")
 

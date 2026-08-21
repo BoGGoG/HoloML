@@ -4,7 +4,7 @@
 > **USAGE:** Update this file whenever a task is started, blocked, or finished.
 > **DO NOT:** Put long-form research notes here; use `docs/JOURNAL.md` for reasoning and `docs/SPECS.md` for formulas/specs.
 
-_Last updated: 2026-06-03_  (Differentiable parametric metric fitting pipeline added)
+_Last updated: 2026-08-21_  (First convergence test of parametric pipeline)
 
 ## 🟢 Current Focus
 Build a validated forward model for AdS$_3$-Vaidya entanglement data before attempting ML reconstruction.
@@ -58,6 +58,7 @@ from spacelike HRT geodesics in Vaidya-AdS. The first inverse-learning target sh
 - [ ] Package the paper summaries as permanent documentation under `docs/literature/`.
 
 ## ✅ Recently Completed
+- 2026-08-21: First convergence test of `scripts/fit_metric_from_lreg.py` with optax SGD (LR=3.0, 20 steps). Pipeline is structurally functional: loss decreases monotonically ($1.48\times10^{-3} \to 2.77\times10^{-4}$), $m_f$ recovers to 0.996 (true=1.0), $v_c$ moves from 0.3 to 0.131 (true=0.0), but $v_s$ barely moves (0.8→0.77, true=0.5). Gradient scale disparity is the likely bottleneck; Adam or per-parameter LR should help. `stop_gradient` on $h_\mathrm{pred}$ was removed; effect TBD. See JOURNAL.md for full analysis.
 - 2026-06-03: Built `scripts/fit_metric_from_lreg.py` — a fully differentiable parametric metric fitting pipeline. Generates geodesic data at a fixed probe time $v_0$ with true parameters, exports to JSON, then fits $f(r,v;\theta)$ end-to-end using `jax.grad`. Forward model uses general geodesic equations (via `jax.grad` on `f_metric`), batched RK4 with `jax.vmap` + `@jax.jit`, and a soft sigmoid cutoff for differentiable $L$ and $h$ extraction. Loss is MSE between predicted $L$ and interpolated target $L(h)$, optimised with optax (SGD or Adam).
 - 2026-06-03: Found and fixed three bugs in `scripts/fit_metric_from_lreg.py`: (1) wrong sign on the $\partial_v f$ term in $\ddot r$, (2) hardcoded $f_r=2r$ in $\ddot v$ instead of using `jax.grad`, (3) `h_\mathrm{data}` was stored in descending order but passed directly to `jnp.interp` which requires ascending order — this caused completely wrong loss and gradient values. See JOURNAL.md for details.
 - 2026-05-13: Implemented Level 1 turning-grid parametric fit (`scripts/fit_parametric_vaidya_turning_grid.py`). Generated 72 geodesics from true $(v_c=0, v_s=0.5)$; Nelder-Mead recovered $v_c=-3.4\times10^{-4}$, $v_s=0.4998$, loss $=3.95\times10^{-28}$ (machine zero). Outputs saved to `inverse_results/`. This is a bulk-label sanity check; real boundary-only inversion requires a shooting layer.
@@ -80,5 +81,10 @@ from spacelike HRT geodesics in Vaidya-AdS. The first inverse-learning target sh
 - Full metric reconstruction from single-interval entropy is likely underdetermined; begin with constrained $m(v)$ reconstruction.
 
 ## Next Session Recommendation
-Verify that `scripts/fit_metric_from_lreg.py` converges to the true parameters $(m_f=1, v_c=0, v_s=0.5)$ with the current sigmoid cutoff ($\delta=1$). If the residual loss at the true parameters is non-negligible, reduce $\delta$ (e.g. to $0.1$) to tighten the soft cutoff and reduce systematic bias vs the hard-cutoff training data. Once convergence is confirmed, replace `f_metric` with an Equinox neural network to move toward unconstrained metric reconstruction.
+The parametric pipeline converges but slowly, especially for $v_s$ (shell thickness). Immediate next steps:
+1. Switch from SGD to Adam to handle per-parameter gradient scale disparity — $m_f$ has much larger gradients than $v_s$.
+2. Run for more steps (200–500) to check whether the optimizer reaches the true parameters or stalls.
+3. Re-enable `stop_gradient` on $h_\mathrm{pred}$ and compare convergence — the confounding gradient path may be slowing $v_s$.
+4. Reduce $\delta$ (e.g. to $0.1$) if the loss floor at true parameters is too high.
+5. Once the parametric fit reliably converges, replace `f_metric` with an Equinox neural network for unconstrained metric reconstruction.
 

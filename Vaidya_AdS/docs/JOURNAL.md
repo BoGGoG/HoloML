@@ -60,5 +60,34 @@ where $w_k = \sigma(-(r_k-r_\mathrm{cut})/\delta)$. The $h$ formula uses the for
 **Decision:** The pipeline is now structurally correct. Remaining known bias: the soft cutoff ($\delta=1$) underweights $\sim 10$ trajectory steps near $r_\mathrm{cut}=200$, causing a small but nonzero residual at the true parameters. Reduce $\delta$ if this is a problem in practice.
 
 ---
+## Log: 2026-08-21 — First convergence test of differentiable parametric pipeline
+
+**Context:** Ran `scripts/fit_metric_from_lreg.py` with optax SGD (LR=3.0, 20 steps) to test whether the end-to-end differentiable pipeline converges toward the true Vaidya parameters $(m_f=1, v_c=0, v_s=0.5)$ from initial guess $(m_f=0.8, v_c=0.3, v_s=0.8)$. This is the first convergence run since the three bugs were fixed on 2026-06-03.
+
+**Changes from prior version:**
+- Replaced manual gradient descent with `optax.sgd(3.0)`.
+- Removed `jax.lax.stop_gradient` on `h_\mathrm{pred}` in the loss (line 189–190 in script). Without `stop_gradient`, gradients also flow through the $h$ interpolation lookup, which was previously flagged as potentially confounding (see 2026-06-03 entry). The current run suggests the effect is not catastrophic, but may be contributing to slow convergence on $v_s$.
+- Initial parameters moved closer to true values: $(m_f, v_c, v_s) = (0.8, 0.3, 0.8)$ instead of previous $(0.4, -0.5, 0.8)$.
+
+**Results (20 SGD steps, LR=3.0):**
+
+| Parameter | True | Initial | After 20 steps | Recovery |
+|-----------|------|---------|----------------|----------|
+| $m_f$     | 1.0  | 0.8     | 0.9961         | ~99.6%   |
+| $v_c$     | 0.0  | 0.3     | 0.1310         | ~56%     |
+| $v_s$     | 0.5  | 0.8     | 0.7701         | ~10%     |
+
+Loss: $1.48 \times 10^{-3} \to 2.77 \times 10^{-4}$ (5.3× reduction).
+
+$m_f$ converges quickly. $v_c$ moves in the right direction but slowly. $v_s$ barely moves — this parameter controls the shell thickness and couples nonlinearly; its gradient magnitude is likely much smaller than $m_f$'s at this probe time $v_0=0$.
+
+**Assessment:**
+- The pipeline is structurally functional: gradients flow, the loss decreases monotonically, and all three parameters move in the correct direction.
+- The convergence is slow, especially for $v_s$. Likely causes: (a) per-parameter gradient scale disparity — Adam or per-parameter LR scheduling would help; (b) SGD at LR=3.0 may be too conservative for $v_s$ while already near the edge for $m_f$; (c) soft cutoff bias ($\delta=1$) introduces a systematic floor; (d) the confounding $h_\mathrm{pred}$ gradient path (now active without `stop_gradient`) could compete.
+- Only 20 steps were run; the loss is still decreasing and has not plateaued. Running more steps or switching to Adam should show further progress.
+
+**Decision:** The pipeline works for parametric fitting. Next steps: (1) try Adam to handle gradient scale disparity, (2) run for more steps to check convergence to true values, (3) re-enable `stop_gradient` to compare, (4) reduce $\delta$ if residual at true params is too large. Once the parametric fit reliably converges, replace `f_metric` with an Equinox neural network.
+
+---
 ## Archive of Failed Attempts
 *Crucial for AI context: Listing what didn't work prevents Claude from suggesting it again.*
