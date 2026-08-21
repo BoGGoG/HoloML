@@ -28,6 +28,18 @@
 **Decision:** This experiment is a **bulk-label sanity check**, not a true boundary inverse problem. The turning-point coordinates $(r_\star, v_\star)$ are internal bulk quantities — a real observer only has access to the boundary data $(\ell, t_{\mathrm{bdy}}) \mapsto L_{\mathrm{reg}}$. Before this can be called an inverse problem, the workflow must be extended with a shooting/interpolation layer that maps the native solver output $(r_\star, v_\star) \to (\ell, t_{\mathrm{bdy}})$, so that the training grid can be specified in boundary coordinates. The turning-grid result is nonetheless useful: it confirms that the forward model is differentiable enough in $(v_c, v_s)$ for gradient-free optimization, and that there are no spurious local minima over this parameter range.
 
 ---
+## Log: 2026-08-21 — NN mass profile: wrong pre-training reveals unconstrained overshoot
+
+**Context:** Tested the NN pipeline (`MassProfile` in `scripts/fit_metric_from_lreg.py`) with pre-training on a *wrong* mass profile ($v_s=2.0$, true $v_s=0.5$) to see whether geodesic-based gradients can correct the shape.
+
+**Findings:**
+- The geodesic training **does sharpen the shell transition** from the pre-trained profile toward the true one. The $L(h)$ curve converges to the target (loss $5.8\times10^{-4} \to 3.2\times10^{-5}$), confirming that gradients through the NN and RK4 integrator carry real signal.
+- However, $m(v)$ **overshoots drastically at late times**: $m(5) \approx 1.77$ (true: 1.0). The NN compensates for the sharper shell by pushing the asymptotic mass up — there is no loss signal to prevent this because geodesics at $v_0=0$ do not probe $v > 3$.
+- $m(0) \approx 0.55$ (true: 0.50) — the probed region is close but not exact.
+
+**Decision:** The unconstrained softplus output cannot enforce $m(v) \to m_f$ at late times. The architecture needs a structural constraint. Options: (1) `m(v) = m_max * sigmoid(NN(v))` to cap the output; (2) asymptotic anchoring `m(v) = sigma(v) * NN_bounded(v)` so $m(-\infty)=0$ by construction; (3) integral of a positive function for monotonicity + zero base. This should be addressed in a follow-up slice.
+
+---
 ---
 ## Log: 2026-06-03 — Differentiable parametric fitting pipeline: design decisions and bugs
 

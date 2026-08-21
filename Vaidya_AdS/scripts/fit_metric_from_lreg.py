@@ -254,8 +254,12 @@ if __name__ == "__main__":
     key = jax.random.PRNGKey(42)
     model = MassProfile(hidden_dims=(32, 32), key=key)
 
-    print("Pre-training on tanh mass profile...")
-    model = pretrain_mass_profile(model, m_f, v_c, v_s, n_steps=2000, lr=3e-3)
+    PRETRAIN_VS = 2.0
+    print(f"Pre-training on wider shell (v_s={PRETRAIN_VS}, true v_s={v_s})...")
+    model = pretrain_mass_profile(model, m_f, v_c, PRETRAIN_VS, n_steps=2000, lr=3e-3)
+
+    v_plot = jnp.linspace(-5.0, 5.0, 200)
+    m_pretrain = np.array(jax.vmap(model)(v_plot))
 
     # ── Initial predictions ───────────────────────────────────────────────
 
@@ -326,11 +330,11 @@ if __name__ == "__main__":
     ax.legend()
 
     ax = axes[1]
-    v_plot = jnp.linspace(-5.0, 5.0, 200)
     m_true_arr = m_f * 0.5 * (1.0 + np.tanh((np.array(v_plot) - v_c) / v_s))
     m_learned = np.array(jax.vmap(model)(v_plot))
     ax.plot(np.array(v_plot), m_true_arr, "k-", label=r"$m_{\mathrm{true}}(v)$", lw=2)
-    ax.plot(np.array(v_plot), m_learned, "r--", label=r"$m_\theta(v)$", lw=2)
+    ax.plot(np.array(v_plot), m_pretrain, "b:", label=r"$m_\theta$ after pretrain", lw=1.5)
+    ax.plot(np.array(v_plot), m_learned, "r--", label=r"$m_\theta$ after training", lw=2)
     ax.set_xlabel(r"$v$")
     ax.set_ylabel(r"$m(v)$")
     ax.set_title("Mass profile recovery")
