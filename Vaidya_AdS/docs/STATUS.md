@@ -58,6 +58,7 @@ from spacelike HRT geodesics in Vaidya-AdS. The first inverse-learning target sh
 - [ ] Package the paper summaries as permanent documentation under `docs/literature/`.
 
 ## ✅ Recently Completed
+- 2026-08-21: Added an asymptotic boundary loss term to `scripts/fit_metric_from_lreg.py` (anchors $m_\theta(v)$ to known $m_f$ at $v\in[4,6]$, $\lambda=1$) to fix the late-time overshoot found when pre-training on a wrong profile: $m(5)$ went from $\approx1.77$ to $\approx1.0002$. Mid-transition shape error near $v=0$ ($m(0)\approx0.61$ vs true $0.50$) remains under the wrong-pretrain stress test; needs multiple probe times to fully resolve. See `docs/slices/slice_01_nn_mass_profile.md`.
 - 2026-08-21: **Slice 01 closed.** Replaced parametric $m(v)$ with Equinox MLP (`MassProfile`: 2×32 tanh, softplus output) in `scripts/fit_metric_from_lreg.py`. `jax.grad` differentiates through the NN for geodesic equations; `jax.checkpoint` on the RK4 scan step bounds memory. After 2000 pre-training steps + 100 geodesic training steps (Adam, lr=1e-3), the NN recovers the tanh mass profile: $m(0)\approx0.49$ (true 0.5), $m(5)\approx1.03$ (true 1.0). Integration step size changed to `DT=0.01, N_STEPS=5000` for practical CPU runtime. See `docs/slices/slice_01_nn_mass_profile.md`.
 - 2026-08-21: First convergence test of `scripts/fit_metric_from_lreg.py` with optax SGD (LR=3.0, 20 steps). Pipeline is structurally functional: loss decreases monotonically ($1.48\times10^{-3} \to 2.77\times10^{-4}$), $m_f$ recovers to 0.996 (true=1.0), $v_c$ moves from 0.3 to 0.131 (true=0.0), but $v_s$ barely moves (0.8→0.77, true=0.5). Gradient scale disparity is the likely bottleneck; Adam or per-parameter LR should help. `stop_gradient` on $h_\mathrm{pred}$ was removed; effect TBD. See JOURNAL.md for full analysis.
 - 2026-06-03: Built `scripts/fit_metric_from_lreg.py` — a fully differentiable parametric metric fitting pipeline. Generates geodesic data at a fixed probe time $v_0$ with true parameters, exports to JSON, then fits $f(r,v;\theta)$ end-to-end using `jax.grad`. Forward model uses general geodesic equations (via `jax.grad` on `f_metric`), batched RK4 with `jax.vmap` + `@jax.jit`, and a soft sigmoid cutoff for differentiable $L$ and $h$ extraction. Loss is MSE between predicted $L$ and interpolated target $L(h)$, optimised with optax (SGD or Adam).
@@ -82,9 +83,9 @@ from spacelike HRT geodesics in Vaidya-AdS. The first inverse-learning target sh
 - Full metric reconstruction from single-interval entropy is likely underdetermined; begin with constrained $m(v)$ reconstruction.
 
 ## Next Session Recommendation
-The NN mass profile pipeline (slice 01) works. The geodesic loss is near its floor after pre-training, so the geodesic-based training provides only mild refinement. Next steps to increase the inverse-problem difficulty:
-1. Test with a *wrong* initial profile (pre-train on a different $v_s$ or $v_c$) to stress-test whether geodesic gradients can steer the NN from a mismatched initialization.
-2. Use multiple probe times $v_0$ to give the geodesics sensitivity to different parts of $m(v)$.
-3. Build the shooting/interpolation layer to convert from turning-point data $(r_\star, v_\star)$ to boundary-controlled data $(\ell, t) \mapsto L_\mathrm{reg}$.
-4. Reduce $\delta$ (soft cutoff) if the loss floor is too high.
+The NN mass profile pipeline (slice 01) works, and the late-time overshoot found in the wrong-pretrain stress test is fixed by an asymptotic anchoring loss term. Remaining gap: mid-transition shape error near $v=0$ persists under a wrong pretrain because a single probe time $v_0=0$ under-constrains the shell shape. Next steps:
+1. Use multiple probe times $v_0$ to give the geodesics sensitivity to different parts of $m(v)$ and better constrain the shell shape/location, not just the asymptote.
+2. Build the shooting/interpolation layer to convert from turning-point data $(r_\star, v_\star)$ to boundary-controlled data $(\ell, t) \mapsto L_\mathrm{reg}$.
+3. Reduce $\delta$ (soft cutoff) if the loss floor is too high.
+4. Consider whether the asymptotic anchor should also be added at early $v$ (anchor to $m_i=0$) for symmetry, or whether the wrong-pretrain test should be re-run with a wrong $v_c$ (shell location) rather than $v_s$ (shell width) to check a different failure mode.
 

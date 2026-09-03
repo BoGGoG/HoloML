@@ -50,7 +50,7 @@ def _(Path, os, sys):
     )
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     # Vaidya-AdS vs BTZ vs Empty AdS: Geodesic Comparison
@@ -111,7 +111,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## Solver parameters
@@ -241,7 +241,7 @@ def _(R_STARS, empty_ads_geodesic_exact, np, r_cut_inp):
     return L_reg_empty, l_empty
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## Direct solver validation: Vaidya RK4 at $m=0$ vs exact empty AdS
@@ -356,7 +356,7 @@ def _(
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## Internal check: BTZ analytic $\ell(r_\star)$ vs GL quadrature
@@ -480,10 +480,11 @@ def _(R_STARS, V0_SELECTED, go, l_BTZ_analytic, l_empty, mo, np, vaidya):
         mode="lines", line=dict(color="black", dash="dash", width=5.5),
         name="BTZ analytic",
     ))
+    _fig_l.update_layout(yaxis_range=[0, 6], xaxis_range=[0, 5])
 
     _fig_l.update_layout(
         title="Boundary separation ℓ(r★)  —  Vaidya vs BTZ and empty AdS",
-        xaxis_title="r★ (turning-point radius)",
+        xaxis_title=r"$r_\star$ (turning-point radius)",
         yaxis_title="ℓ",
         legend_title="",
         width=800, height=450,
@@ -492,7 +493,7 @@ def _(R_STARS, V0_SELECTED, go, l_BTZ_analytic, l_empty, mo, np, vaidya):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## $L_{\rm reg}(r_\star)$: regularized geodesic length
@@ -731,7 +732,7 @@ def _(R_STARS, V0_SELECTED, go, l_empty, mo, np, vaidya):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## Geodesic shapes in compactified coordinates
@@ -1024,6 +1025,21 @@ def _(
         width=920, height=720,
     )
     mo.ui.plotly(_fig3d)
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _():
     return
 
 

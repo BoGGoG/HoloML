@@ -122,9 +122,10 @@ class MassProfile(eqx.Module):
         return jax.nn.softplus(self.layers[-1](x))[0]
 
 
-def pretrain_mass_profile(model, m_f, v_c, v_s, n_steps=500, lr=1e-3):
+def pretrain_mass_profile(model, m_f, v_c, v_s, n_steps=500, lr=1e-3, reflect=False):
     v_grid = jnp.linspace(-5.0, 5.0, 200)
-    m_target = m_f * 0.5 * (1.0 + jnp.tanh((v_grid - v_c) / v_s))
+    sign = -1.0 if reflect else 1.0
+    m_target = m_f * 0.5 * (1.0 + sign * jnp.tanh((v_grid - v_c) / v_s))
 
     optimizer = optax.adam(lr)
     opt_state = optimizer.init(eqx.filter(model, eqx.is_array))
@@ -254,9 +255,13 @@ if __name__ == "__main__":
     key = jax.random.PRNGKey(42)
     model = MassProfile(hidden_dims=(32, 32), key=key)
 
-    PRETRAIN_VS = 2.0
-    print(f"Pre-training on wider shell (v_s={PRETRAIN_VS}, true v_s={v_s})...")
-    model = pretrain_mass_profile(model, m_f, v_c, PRETRAIN_VS, n_steps=2000, lr=3e-3)
+    PRETRAIN_REFLECTED = True
+    print(
+        f"Pre-training on reflected profile (m_f - m_true(v)) — much worse initialization..."
+    )
+    model = pretrain_mass_profile(
+        model, m_f, v_c, v_s, n_steps=2000, lr=3e-3, reflect=PRETRAIN_REFLECTED
+    )
 
     v_plot = jnp.linspace(-5.0, 5.0, 200)
     m_pretrain = np.array(jax.vmap(model)(v_plot))
@@ -275,7 +280,14 @@ if __name__ == "__main__":
     # ── Geodesic-based training ───────────────────────────────────────────
 
     LR = 1e-3
-    N_GD_STEPS = 100
+    N_GD_STEPS = 150
+
+    # Asymptotic boundary condition: geodesics at v0=0 don't probe v > ~3,
+    # so the NN is unconstrained there and can drift (see JOURNAL.md,
+    # v_s=2.0 pretrain stress test: m(5)≈1.77 vs true 1.0). Anchor m_theta(v)
+    # to the known late-time mass m_f at a handful of large-v points.
+    V_ASYMPTOTIC = jnp.linspace(4.0, 6.0, 5)
+    LAMBDA_ASYM = 1.0
 
     optimizer = optax.adam(LR)
     opt_state = optimizer.init(eqx.filter(model, eqx.is_array))
@@ -284,7 +296,10 @@ if __name__ == "__main__":
     @eqx.filter_value_and_grad
     def compute_loss(model):
         h_p, L_p = forward(model, r_data, v0)
-        return loss_fn(h_p, L_p)
+        geodesic_loss = loss_fn(h_p, L_p)
+        m_asym = jax.vmap(model)(V_ASYMPTOTIC)
+        asym_loss = jnp.mean((m_asym - m_f) ** 2)
+        return geodesic_loss + LAMBDA_ASYM * asym_loss
 
     print("Compiling gradient computation (first call)...")
     loss_val, grads = compute_loss(model)
@@ -305,8 +320,7 @@ if __name__ == "__main__":
             m_at_0 = float(model(0.0))
             m_at_5 = float(model(5.0))
             print(
-                f"{step:>4}  {float(loss_val):>12.6e}"
-                f"  {m_at_0:>8.4f}  {m_at_5:>8.4f}"
+                f"{step:>4}  {float(loss_val):>12.6e}  {m_at_0:>8.4f}  {m_at_5:>8.4f}"
             )
 
     # ── Plots ─────────────────────────────────────────────────────────────
@@ -333,8 +347,12 @@ if __name__ == "__main__":
     m_true_arr = m_f * 0.5 * (1.0 + np.tanh((np.array(v_plot) - v_c) / v_s))
     m_learned = np.array(jax.vmap(model)(v_plot))
     ax.plot(np.array(v_plot), m_true_arr, "k-", label=r"$m_{\mathrm{true}}(v)$", lw=2)
-    ax.plot(np.array(v_plot), m_pretrain, "b:", label=r"$m_\theta$ after pretrain", lw=1.5)
-    ax.plot(np.array(v_plot), m_learned, "r--", label=r"$m_\theta$ after training", lw=2)
+    ax.plot(
+        np.array(v_plot), m_pretrain, "b:", label=r"$m_\theta$ after pretrain", lw=1.5
+    )
+    ax.plot(
+        np.array(v_plot), m_learned, "r--", label=r"$m_\theta$ after training", lw=2
+    )
     ax.set_xlabel(r"$v$")
     ax.set_ylabel(r"$m(v)$")
     ax.set_title("Mass profile recovery")

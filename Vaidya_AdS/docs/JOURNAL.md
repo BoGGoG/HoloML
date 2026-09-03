@@ -37,9 +37,34 @@
 - However, $m(v)$ **overshoots drastically at late times**: $m(5) \approx 1.77$ (true: 1.0). The NN compensates for the sharper shell by pushing the asymptotic mass up — there is no loss signal to prevent this because geodesics at $v_0=0$ do not probe $v > 3$.
 - $m(0) \approx 0.55$ (true: 0.50) — the probed region is close but not exact.
 
-**Decision:** The unconstrained softplus output cannot enforce $m(v) \to m_f$ at late times. The architecture needs a structural constraint. Options: (1) `m(v) = m_max * sigmoid(NN(v))` to cap the output; (2) asymptotic anchoring `m(v) = sigma(v) * NN_bounded(v)` so $m(-\infty)=0$ by construction; (3) integral of a positive function for monotonicity + zero base. This should be addressed in a follow-up slice.
+**Decision:** The unconstrained softplus output cannot enforce $m(v) \to m_f$ at late times. The architecture needs a structural constraint. Options: (1) `m(v) = m_max * sigmoid(NN(v))` to cap the output; (2) asymptotic anchoring `m(v) = sigma(v) * NN_bounded(v)` so $m(-\infty)=0$ by construction; (3) integral of a positive function for monotonicity + zero base; (4) add an explicit loss term anchoring $m_\theta$ to the known $m_f$ at a few large-$v$ points. Tried (4) below; still slice 01 since it's the same script/architecture.
 
 ---
+
+## Log: 2026-08-21 — Asymptotic boundary loss term fixes late-time overshoot
+
+**Context:** Follow-up to the wrong-pretrain stress test above. Added an explicit loss term anchoring $m_\theta(v)$ to the known late-time mass $m_f$ at $v \in [4,6]$ (5 points), weighted equally against the geodesic loss ($\lambda=1$), in `scripts/fit_metric_from_lreg.py`.
+
+**Findings:**
+- $m(5)$ recovers to $1.0002$ (was $1.77$) after 100 training steps — the overshoot is fixed.
+- $m(0)$ is $0.6117$ (true $0.50$), still off — the shell shape near $v=0$, which is directly probed by the $v_0=0$ geodesics, does not fully correct in 100 Adam steps from the wide ($v_s=2.0$) pretrain. The `L(h)` curve still matches the target closely.
+- This is a supervised anchor, not something the geodesic data alone provides — it uses knowledge of $m_f$ that would not be available in a fully blind inverse problem. Acceptable here since $m_f$ is treated as known (only the profile *shape* $m(v)$ is unknown).
+
+**Decision:** Keep the asymptotic loss term as a standing part of the pipeline (`V_ASYMPTOTIC`, `LAMBDA_ASYM` in the script). It does not fix the mid-transition shape error, which is a separate, harder problem (needs multiple probe times $v_0$ or more training steps) — leave that for the next slice.
+
+---
+
+## Log: 2026-08-21 — Reflected pretrain + short (30-step) training: exploratory stress test
+
+**Context:** Ad hoc test, not a formal acceptance run. Pre-trained `MassProfile` on the *reflected* true profile ($m_f \cdot 0.5(1-\tanh((v-v_c)/v_s))$ — mirror image, decreasing $1\to0$ instead of increasing $0\to1$), then ran only 30 Adam geodesic-training steps (down from 100) with the asymptotic anchor loss from the previous entry still active.
+
+**Findings:**
+- Initial total loss after pretrain: $0.994$, almost entirely from the asymptotic term ($m(5)\approx0.006$ vs target $1.0$), confirming the anchor term correctly detects and penalizes the reflected profile's wrong asymptote.
+- After 30 steps: loss $0.994 \to 0.539$, $m(5)$: $0.006\to0.316$, $m(0)$: $0.511\to0.729$. The profile visibly starts pivoting toward the true shape (rising with $v$ instead of falling) but is far from converged — 30 steps is not enough to undo a fully mirrored initialization.
+- $L(h)$ still tracks the target reasonably closely even though $m_\theta(v)$ is grossly wrong in shape, reinforcing the earlier note (slice 01 design doc) that $L(h)$ agreement alone is not a reliable convergence diagnostic.
+
+**Decision:** No pipeline change from this run — it's a stress test of how bad an initialization the asymptotic-anchored pipeline can still recover from, not a bug fix. Confirms more training steps (or a better anchor/regularization scheme) are needed for badly wrong initializations; consistent with the standing recommendation to add multiple probe times $v_0$.
+
 ---
 ## Log: 2026-06-03 — Differentiable parametric fitting pipeline: design decisions and bugs
 
